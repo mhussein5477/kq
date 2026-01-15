@@ -1,6 +1,9 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:kq/screens/home/editBeneficiaries.dart';
+import 'package:kq/screens/home/editNextOfKin.dart';
+import 'package:kq/screens/home/editProfile.dart';
 import 'package:kq/screens/home/settings.dart';
 import 'package:kq/screens/home/test.dart';
 import 'package:kq/services/api_service.dart';
@@ -528,7 +531,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         width: double.infinity,
         child: ElevatedButton.icon(
           onPressed: () {
-            // TODO: Navigate to edit beneficiaries screen
+            Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const EditBeneficiariesScreen(),
+                ),
+              );
           },
           icon: const Icon(Icons.edit, size: 18),
           label: const Text('Edit Beneficiaries'),
@@ -627,6 +635,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         child: ElevatedButton.icon(
           onPressed: () {
             // TODO: Navigate to edit next of kin screen
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const EditNOKScreen(),
+              ),
+            );
           },
           icon: const Icon(Icons.edit, size: 18),
           label: const Text('Edit Next of Kin'),

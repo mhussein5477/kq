@@ -7,7 +7,6 @@ import 'package:kq/widgets/appBarAuth.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:jwt_decode/jwt_decode.dart';
 import 'package:kq/services/api_service.dart';
-// import 'package:shared_preferences/shared_preferences.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -93,6 +92,8 @@ class _LoginScreenState extends State<LoginScreen> {
         password: password,
       );
 
+      print('Login Response: $loginResponse');
+
       final data = loginResponse['data'];
       if (data == null) throw Exception('Login data not found');
 
@@ -100,11 +101,13 @@ class _LoginScreenState extends State<LoginScreen> {
       final String mfaToken = data['mfaToken'] ?? '';
       await SecureStorageService.saveMfaToken(mfaToken);
 
-      // 4️⃣ Save credentials for autofill / fingerprint login
+      // 2️⃣ Save credentials for autofill / fingerprint login
       await SecureStorageService.saveCredentials(
         email: email,
         password: password,
       );
+
+      if (!mounted) return;
 
       // Navigate to OTP screen with MFA token
       Navigator.of(context).push(
@@ -114,13 +117,23 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Login failed: ${e.toString()}')));
+      if (!mounted) return;
+      
+      String errorMessage = e.toString().replaceAll('Exception: ', '');
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMessage),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -132,6 +145,7 @@ class _LoginScreenState extends State<LoginScreen> {
         child: SingleChildScrollView(
           child: Container(
             width: double.infinity,
+            height: MediaQuery.of(context).size.height,
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
@@ -153,19 +167,20 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: Column(
                     children: [
                       // Illustration
-                      Container(
-                        width: MediaQuery.of(context).size.width * 0.6,
-                        height: MediaQuery.of(context).size.height * 0.15,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(30),
-                        ),
-                        child: Image.asset(
-                          'assets/images/login.png',
-                          fit: BoxFit.contain,
-                        ),
-                      ),
+                     Container(
+  padding: const EdgeInsets.all(20),
+  decoration: BoxDecoration(
+    color: const Color(0xFFE31E24).withOpacity(0.1),
+    borderRadius: BorderRadius.circular(20),
+  ),
+  child: const Icon(
+    Icons.person,
+    size: 60,
+    color: Color(0xFFE31E24),
+  ),
+),
 
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 24),
                       const Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -179,7 +194,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           Text('👋', style: TextStyle(fontSize: 20)),
                         ],
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 4),
                       Text(
                         'Sign in to access your pension account',
                         style: TextStyle(fontSize: 13, color: Colors.grey[600]),
@@ -187,7 +202,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                       const SizedBox(height: 22),
 
-                      // Email field
+                      // Email field (NO HINT)
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -202,14 +217,22 @@ class _LoginScreenState extends State<LoginScreen> {
                           const SizedBox(height: 8),
                           TextField(
                             controller: _emailController,
+                            keyboardType: TextInputType.emailAddress,
                             decoration: InputDecoration(
-                              hintText: 'johnDoe@gmail.com',
                               prefixIcon: const Icon(
                                 Icons.email_outlined,
                                 size: 20,
                               ),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: Colors.grey[300]!),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(color: Color(0xFFE31E24)),
                               ),
                             ),
                           ),
@@ -218,7 +241,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                       const SizedBox(height: 15),
 
-                      // Password field
+                      // Password field (NO HINT)
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -235,7 +258,6 @@ class _LoginScreenState extends State<LoginScreen> {
                             controller: _passwordController,
                             obscureText: _obscurePassword,
                             decoration: InputDecoration(
-                              hintText: 'XXXXXXXX',
                               prefixIcon: const Icon(
                                 Icons.lock_outline,
                                 size: 20,
@@ -255,6 +277,14 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: Colors.grey[300]!),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(color: Color(0xFFE31E24)),
                               ),
                             ),
                           ),
@@ -296,6 +326,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(30),
                                 ),
+                                disabledBackgroundColor: Colors.grey[400],
                               ),
                               child: _isLoading
                                   ? const SizedBox(
@@ -305,7 +336,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                           height: 30,
                                           width: 30,
                                           child: ExpressiveLoadingIndicator(
-                                            color: Colors.red,
+                                            color: Colors.white,
                                           ),
                                         ),
                                       ),
@@ -328,7 +359,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               shape: BoxShape.circle,
                             ),
                             child: IconButton(
-                              onPressed: _handleFingerprintLogin,
+                              onPressed: _isLoading ? null : _handleFingerprintLogin,
                               icon: const Icon(Icons.fingerprint, size: 32),
                             ),
                           ),
@@ -363,7 +394,6 @@ class _LoginScreenState extends State<LoginScreen> {
                         width: double.infinity,
                         child: OutlinedButton(
                           onPressed: () {
-                            // TODO: Navigate to Register screen
                             Navigator.push(
                               context,
                               MaterialPageRoute(
