@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class ApiService {
-  static const String _baseUrl = 'https://api.lunapackagingltd.co.ke/kq';
+  static const String _baseUrl = 'https://api.lunapackagingltd.co.ke/kq/api/v1';
   static const String _erpBaseUrl =
       'https://kq-erp.defttech.co.ke:5648/KQ/ODataV4';
 
@@ -51,7 +51,9 @@ class ApiService {
     required String emailAddress,
     required String password,
   }) async {
+ 
     final url = Uri.parse('$_baseUrl/auth/signUp');
+   
 
     final response = await http.post(
       url,
@@ -76,6 +78,7 @@ class ApiService {
     required String emailAddress,
     required String password,
   }) async {
+    print('$_baseUrl/auth/signIn');
     final url = Uri.parse('$_baseUrl/auth/signIn');
 
     try {
