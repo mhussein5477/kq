@@ -25,19 +25,22 @@ class _RegisterState extends State<Register> {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: SafeArea(
         child: SingleChildScrollView(
           child: Container(
             height: MediaQuery.of(context).size.height,
             width: double.infinity,
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: theme.cardColor,
               borderRadius: BorderRadius.circular(16),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
+                  color: Colors.black.withOpacity(isDarkMode ? 0.3 : 0.05),
                   blurRadius: 10,
                   offset: const Offset(0, 2),
                 ),
@@ -72,12 +75,12 @@ class _RegisterState extends State<Register> {
                       const SizedBox(height: 24),
 
                       // Welcome text
-                      const Text(
+                      Text(
                         "We'll verify your email to get you started.",
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
-                          color: Colors.black87,
+                          color: isDarkMode ? Colors.white : Colors.black87,
                         ),
                         textAlign: TextAlign.center,
                       ),
@@ -86,7 +89,7 @@ class _RegisterState extends State<Register> {
                         'Enter your email address to check your membership, receive an OTP for verification, and securely set your password.',
                         style: TextStyle(
                           fontSize: 13,
-                          color: Colors.grey[600],
+                          color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
                           height: 1.5,
                         ),
                         textAlign: TextAlign.center,
@@ -98,39 +101,44 @@ class _RegisterState extends State<Register> {
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
+                          Text(
                             'Email Address',
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w500,
-                              color: Colors.black87,
+                              color: isDarkMode ? Colors.white70 : Colors.black87,
                             ),
                           ),
                           const SizedBox(height: 8),
                           TextField(
                             controller: _emailController,
                             keyboardType: TextInputType.emailAddress,
+                            style: TextStyle(
+                              color: isDarkMode ? Colors.white : Colors.black,
+                            ),
                             decoration: InputDecoration(
                               hintText: 'johnDoe@gmail.com',
                               hintStyle: TextStyle(
-                                color: Colors.grey[400],
+                                color: isDarkMode ? Colors.grey[500] : Colors.grey[400],
                                 fontSize: 14,
                               ),
                               prefixIcon: Icon(
                                 Icons.email_outlined,
                                 size: 20,
-                                color: Colors.grey[600],
+                                color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
                               ),
+                              filled: true,
+                              fillColor: isDarkMode 
+                                  ? const Color(0xFF2A2A2A) 
+                                  : Colors.grey[50],
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide(
-                                  color: Colors.grey[300]!,
-                                ),
+                                borderSide: BorderSide.none,
                               ),
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
                                 borderSide: BorderSide(
-                                  color: Colors.grey[300]!,
+                                  color: isDarkMode ? Colors.grey[800]! : Colors.grey[300]!,
                                 ),
                               ),
                               focusedBorder: OutlineInputBorder(
@@ -233,7 +241,7 @@ class _RegisterState extends State<Register> {
                                       height: 30,
                                       width: 30,
                                       child: ExpressiveLoadingIndicator(
-                                        color: Colors.red,
+                                        color: Colors.white,
                                       ),
                                     ),
                                   ),
@@ -253,7 +261,10 @@ class _RegisterState extends State<Register> {
                       // Footer
                       Text(
                         'Powered By Deft Technologies · KE. Contact Us',
-                        style: TextStyle(color: Colors.grey[600], fontSize: 11),
+                        style: TextStyle(
+                          color: isDarkMode ? Colors.grey[500] : Colors.grey[600],
+                          fontSize: 11,
+                        ),
                         textAlign: TextAlign.center,
                       ),
                     ],

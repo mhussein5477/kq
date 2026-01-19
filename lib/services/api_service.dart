@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:archive/archive.dart';
 import 'package:http/http.dart' as http;
 
 class ApiService {
@@ -71,9 +72,6 @@ class ApiService {
     }
   }
 
-// FIXED: signIn method with better error handling
-// Replace your existing signIn method with this:
-
   static Future<Map<String, dynamic>> signIn({
     required String emailAddress,
     required String password,
@@ -91,7 +89,6 @@ class ApiService {
       print('Login Status Code: ${response.statusCode}');
       print('Login Response Body: ${response.body}');
 
-      // Check if response body is empty
       if (response.body.isEmpty) {
         throw Exception('Empty response from server');
       }
@@ -100,7 +97,6 @@ class ApiService {
       print('Login Decoded: $decoded');
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        // Check if success field exists and is true, or just return if status is 200/201
         if (decoded is Map<String, dynamic>) {
           if (decoded.containsKey('success')) {
             if (decoded['success'] == true) {
@@ -109,7 +105,6 @@ class ApiService {
               throw Exception(decoded['message'] ?? 'Login failed');
             }
           } else {
-            // If no success field, assume success based on status code
             return decoded;
           }
         } else {
@@ -129,6 +124,7 @@ class ApiService {
       rethrow;
     }
   }
+
   static Future<Map<String, dynamic>> verifyMfa({
     required String emailAddress,
     required int otp,
@@ -173,7 +169,9 @@ class ApiService {
       },
       body: body,
     );
-
+    final decoded = jsonDecode(response.body);
+    print('MEMBER DETAILS STATUS: ${response.statusCode}');
+    print('MEMBER DETAILS: $decoded');
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
     } else {
@@ -369,8 +367,6 @@ class ApiService {
 
   // ==================== CHANGE REQUEST MANAGEMENT ====================
 
-  /// Initiate a change request for a member
-  /// Returns the change request document details
   static Future<Map<String, dynamic>> initiateChangeRequest({
     required String accessToken,
     required String memberNo,
@@ -402,8 +398,6 @@ class ApiService {
       
       print('🔍 Parsed inner response: $inner');
       
-      // Handle the actual response structure
-      // Response format: {"values": [{"requestId": "1", "values": {"changeRequestNo": "CHG-08"}}]}
       if (inner['values'] != null && inner['values'] is List && inner['values'].isNotEmpty) {
         final valuesArray = inner['values'] as List;
         final firstItem = valuesArray[0];
@@ -411,25 +405,19 @@ class ApiService {
         print('🔍 First item: $firstItem');
         
         if (firstItem is Map<String, dynamic>) {
-          // Check if there's a nested 'values' object containing the changeRequestNo
           if (firstItem['values'] != null && firstItem['values'] is Map) {
             final changeRequestData = firstItem['values'] as Map<String, dynamic>;
             final changeRequestNo = changeRequestData['changeRequestNo'];
             
             print('✅ Found changeRequestNo: $changeRequestNo');
             
-            // Return with both 'no' and 'changeRequestNo' for compatibility
             return {
               'no': changeRequestNo,
               'changeRequestNo': changeRequestNo,
-              // Note: The API doesn't return an 'id', so we'll use the changeRequestNo
-              // for identification. We'll need to fetch the full details using getChangeRequestDetails
-              // if we need the actual system ID
               'needsFullDetails': true,
             };
           }
           
-          // Fallback to returning the first item as-is
           return firstItem;
         }
       }
@@ -442,11 +430,6 @@ class ApiService {
     }
   }
 
-  /// Get change request details with optional related data
-  /// includeNOKChanges: Include next of kin changes
-  /// includeBeneficiaryChanges: Include beneficiary changes
-  /// includeSpouseChanges: Include spouse changes
-  /// includeGuardianChanges: Include guardian changes
   static Future<Map<String, dynamic>> getChangeRequestDetails({
     required String accessToken,
     required String changeRequestNo,
@@ -459,7 +442,6 @@ class ApiService {
       '$_erpBaseUrl/MSSIntegration_MemberChanges?company=$companyId',
     );
 
-    // Build request body with optional flags
     final requestBody = <String, dynamic>{
       'changeRequestNo': changeRequestNo,
     };
@@ -493,26 +475,12 @@ class ApiService {
       
       print('🔍 Parsed inner: $inner');
       
-      // Response structure: 
-      // {
-      //   "message": "...",
-      //   "values": [{
-      //     "requestId": "1",
-      //     "status": "success", 
-      //     "values": [
-      //       {"id": "...", "changeType": "Change Value", ...},
-      //       {"id": "...", "changeType": "Previous Value", ...}
-      //     ]
-      //   }]
-      // }
-      
       if (inner['values'] != null && inner['values'] is List) {
         final outerValuesArray = inner['values'] as List;
         
         if (outerValuesArray.isNotEmpty) {
           final responseWrapper = outerValuesArray[0];
           
-          // Now get the actual change request data from the nested 'values'
           if (responseWrapper is Map<String, dynamic> && 
               responseWrapper['values'] != null && 
               responseWrapper['values'] is List) {
@@ -540,8 +508,6 @@ class ApiService {
     }
   }
 
-  /// Update member change request (PATCH)
-  /// This updates the main member details in a change request
   static Future<Map<String, dynamic>> updateMemberChanges({
     required String accessToken,
     required String changeRequestId,
@@ -593,8 +559,6 @@ class ApiService {
     }
   }
 
-  /// Submit member changes for approval
-  /// This finalizes the change request and sends it for approval
   static Future<bool> submitMemberChanges({
     required String accessToken,
     required String changeRequestId,
@@ -623,7 +587,6 @@ class ApiService {
     return response.statusCode == 200;
   }
 
-  /// Upload member picture change as base64
   static Future<bool> uploadMemberPicture({
     required String accessToken,
     required String changeRequestId,
@@ -652,46 +615,43 @@ class ApiService {
     return response.statusCode == 200;
   }
 
-  /// Fetch relationships (for dropdown lists)
-static Future<List<Map<String, dynamic>>> fetchRelationships({
-  required String accessToken,
-}) async {
-  final url = Uri.parse(
-    '$_erpBaseUrl/MSSIntegration_Relationships?company=$companyId',
-  );
+  static Future<List<Map<String, dynamic>>> fetchRelationships({
+    required String accessToken,
+  }) async {
+    final url = Uri.parse(
+      '$_erpBaseUrl/MSSIntegration_Relationships?company=$companyId',
+    );
 
-  final body = jsonEncode({
-    "request": "[{\"requestId\":01,\"method\":\"GET\",\"requestBody\":{}}]",
-  });
+    final body = jsonEncode({
+      "request": "[{\"requestId\":01,\"method\":\"GET\",\"requestBody\":{}}]",
+    });
 
-  final response = await http.post(
-    url,
-    headers: {
-      'Authorization': 'Bearer $accessToken',
-      'Content-Type': 'application/json',
-    },
-    body: body,
-  );
+    final response = await http.post(
+      url,
+      headers: {
+        'Authorization': 'Bearer $accessToken',
+        'Content-Type': 'application/json',
+      },
+      body: body,
+    );
 
-  if (response.statusCode != 200) {
-    throw Exception('Failed to fetch relationships (${response.statusCode})');
+    if (response.statusCode != 200) {
+      throw Exception('Failed to fetch relationships (${response.statusCode})');
+    }
+
+    final outer = jsonDecode(response.body);
+    final inner = jsonDecode(outer['value']);
+
+    final List values = inner['values'];
+    if (values.isEmpty) return [];
+
+    final Map<String, dynamic> first = values.first;
+
+    final List relationships = first['values'] ?? [];
+
+    return List<Map<String, dynamic>>.from(relationships);
   }
 
-  final outer = jsonDecode(response.body);
-  final inner = jsonDecode(outer['value']);
-
-  final List values = inner['values'];
-  if (values.isEmpty) return [];
-
-  // 🔥 THIS is the missing step
-  final Map<String, dynamic> first = values.first;
-
-  final List relationships = first['values'] ?? [];
-
-  return List<Map<String, dynamic>>.from(relationships);
-}
-
-  /// Fetch banks (for dropdown lists)
   static Future<List<Map<String, dynamic>>> fetchBanks({
     required String accessToken,
   }) async {
@@ -737,13 +697,11 @@ static Future<List<Map<String, dynamic>>> fetchRelationships({
 
   // ==================== REPORTS ====================
 
-  /// Generate Member Statement (Benefit Statement)
-  /// Returns base64 encoded gzipped PDF report
   static Future<String> generateMemberStatement({
     required String accessToken,
     required String memberNo,
-    required String startDate, // Format: "YYYY-MM-DD"
-    required String endDate, // Format: "YYYY-MM-DD"
+    required String startDate,
+    required String endDate,
   }) async {
     final url = Uri.parse(
       '$_erpBaseUrl/MSSIntegration_GenerateMemberStatement?company=$companyId',
@@ -789,8 +747,6 @@ static Future<List<Map<String, dynamic>>> fetchRelationships({
     }
   }
 
-  /// Generate Contribution Statement
-  /// Returns base64 encoded gzipped PDF report
   static Future<String> generateContributionStatement({
     required String accessToken,
     required String memberNo,
@@ -845,8 +801,6 @@ static Future<List<Map<String, dynamic>>> fetchRelationships({
     }
   }
 
-  /// Generate Member Certificate
-  /// Returns base64 encoded gzipped PDF report
   static Future<String> generateMemberCertificate({
     required String accessToken,
     required String memberNo,
@@ -895,10 +849,8 @@ static Future<List<Map<String, dynamic>>> fetchRelationships({
     }
   }
 
+  // ==================== BENEFICIARIES ====================
 
-  // Add these methods to your ApiService class
-
-  /// Fetch beneficiary change requests for a member
   static Future<List<Map<String, dynamic>>> fetchBeneficiaryChanges({
     required String accessToken,
     required String changeRequestNo,
@@ -951,45 +903,43 @@ static Future<List<Map<String, dynamic>>> fetchRelationships({
     }
   }
 
-  /// Add or update beneficiary in change request
-static Future<bool> updateBeneficiaryChanges({
-  required String accessToken,
-  required Map<String, dynamic> beneficiary, // SINGLE object
-}) async {
-  final url = Uri.parse(
-    '$_erpBaseUrl/MSSIntegration_MemberBeneficiaryChanges?company=$companyId',
-  );
+  static Future<bool> updateBeneficiaryChanges({
+    required String accessToken,
+    required Map<String, dynamic> beneficiary,
+  }) async {
+    final url = Uri.parse(
+      '$_erpBaseUrl/MSSIntegration_MemberBeneficiaryChanges?company=$companyId',
+    );
 
-  final requestList = [
-    {
-      "requestId": 1,
-      "method": "PATCH",
-      "requestBody": beneficiary, // must include 'id' + 'changeRequestNo'
-    }
-  ];
+    final requestList = [
+      {
+        "requestId": 1,
+        "method": "PATCH",
+        "requestBody": beneficiary,
+      }
+    ];
 
-  final body = jsonEncode({
-    "request": jsonEncode(requestList).replaceAll(RegExp(r'\s+'), ''),
-  });
+    final body = jsonEncode({
+      "request": jsonEncode(requestList).replaceAll(RegExp(r'\s+'), ''),
+    });
 
-  print('📝 UPDATE BENEFICIARY REQUEST BODY: $body');
+    print('📝 UPDATE BENEFICIARY REQUEST BODY: $body');
 
-  final response = await http.post(
-    url,
-    headers: {
-      'Authorization': 'Bearer $accessToken',
-      'Content-Type': 'application/json',
-    },
-    body: body,
-  );
+    final response = await http.post(
+      url,
+      headers: {
+        'Authorization': 'Bearer $accessToken',
+        'Content-Type': 'application/json',
+      },
+      body: body,
+    );
 
-  print('📝 UPDATE BENEFICIARY STATUS: ${response.statusCode}');
-  print('📝 UPDATE BENEFICIARY RESPONSE: ${response.body}');
+    print('📝 UPDATE BENEFICIARY STATUS: ${response.statusCode}');
+    print('📝 UPDATE BENEFICIARY RESPONSE: ${response.body}');
 
-  return response.statusCode == 200;
-}
+    return response.statusCode == 200;
+  }
 
-  /// Delete beneficiary from change request
   static Future<bool> deleteBeneficiaryChange({
     required String accessToken,
     required String changeRequestId,
@@ -1018,7 +968,6 @@ static Future<bool> updateBeneficiaryChanges({
     return response.statusCode == 200;
   }
 
-  /// Fetch available relationships for beneficiaries
   static Future<List<Map<String, dynamic>>> fetchBeneficiaryRelationships({
     required String accessToken,
   }) async {
@@ -1058,15 +1007,656 @@ static Future<bool> updateBeneficiaryChanges({
     }
   }
 
-  // Add these methods to your ApiService class
+  // ==================== NEXT OF KIN ====================
 
-/// Fetch Next of Kin change requests for a member
-static Future<List<Map<String, dynamic>>> fetchNOKChanges({
+  static Future<List<Map<String, dynamic>>> fetchNOKChanges({
+    required String accessToken,
+    required String changeRequestNo,
+  }) async {
+    final url = Uri.parse(
+      '$_erpBaseUrl/MSSIntegration_MemberNOKChanges?company=$companyId',
+    );
+
+    final body = jsonEncode({
+      "request":
+          "[{\"requestId\":01,\"method\":\"GET\",\"requestBody\":{\"changeRequestNo\":\"$changeRequestNo\"}}]",
+    });
+
+    final response = await http.post(
+      url,
+      headers: {
+        'Authorization': 'Bearer $accessToken',
+        'Content-Type': 'application/json',
+      },
+      body: body,
+    );
+
+    print('📋 FETCH NOK CHANGES STATUS: ${response.statusCode}');
+
+    if (response.statusCode == 200) {
+      final outer = jsonDecode(response.body);
+      final inner = jsonDecode(outer['value']);
+
+      if (inner['values'] != null && inner['values'] is List) {
+        final outerValuesArray = inner['values'] as List;
+        
+        if (outerValuesArray.isNotEmpty) {
+          final responseWrapper = outerValuesArray[0];
+          
+          if (responseWrapper is Map<String, dynamic> && 
+              responseWrapper['values'] != null && 
+              responseWrapper['values'] is List) {
+            
+            final nokArray = responseWrapper['values'] as List;
+            return nokArray
+                .whereType<Map<String, dynamic>>()
+                .toList();
+          }
+        }
+      }
+      
+      return [];
+    } else {
+      throw Exception('Failed to fetch NOK changes (${response.statusCode})');
+    }
+  }
+
+  static Future<bool> updateNOKChanges({
+    required String accessToken,
+    required Map<String, dynamic> nextOfKin,
+  }) async {
+    final url = Uri.parse(
+      '$_erpBaseUrl/MSSIntegration_MemberNOKChanges?company=$companyId',
+    );
+
+    final requestList = [
+      {
+        "requestId": 1,
+        "method": "PATCH",
+        "requestBody": nextOfKin,
+      }
+    ];
+
+    final body = jsonEncode({
+      "request": jsonEncode(requestList).replaceAll(RegExp(r'\s+'), ''),
+    });
+
+    print('📝 UPDATE NOK REQUEST BODY: $body');
+
+    final response = await http.post(
+      url,
+      headers: {
+        'Authorization': 'Bearer $accessToken',
+        'Content-Type': 'application/json',
+      },
+      body: body,
+    );
+
+    print('📝 UPDATE NOK STATUS: ${response.statusCode}');
+    print('📝 UPDATE NOK RESPONSE: ${response.body}');
+
+    return response.statusCode == 200;
+  }
+
+  static Future<bool> deleteNOKChange({
+    required String accessToken,
+    required String changeRequestId,
+    required String nokLineNo,
+  }) async {
+    final url = Uri.parse(
+      '$_erpBaseUrl/MSSIntegration_MemberNOKChanges?company=$companyId',
+    );
+
+    final body = jsonEncode({
+      "request":
+          "[{\"requestId\":01,\"method\":\"DELETE\",\"requestBody\":{\"changeRequestId\":\"$changeRequestId\",\"lineNo\":\"$nokLineNo\"}}]",
+    });
+
+    final response = await http.post(
+      url,
+      headers: {
+        'Authorization': 'Bearer $accessToken',
+        'Content-Type': 'application/json',
+      },
+      body: body,
+    );
+
+    print('🗑️ DELETE NOK STATUS: ${response.statusCode}');
+
+    return response.statusCode == 200;
+  }
+
+  // ==================== INTERACTIONS (ENQUIRIES/COMPLAINTS) ====================
+
+  /// Fetch all interactions for a member
+  /// includeComments: Include comments/replies for each interaction
+  /// type: Filter by type (Enquiry, Complaint, Feedback, Other)
+  static Future<List<Map<String, dynamic>>> fetchInteractions({
+    required String accessToken,
+    String? memberNo,
+    bool includeComments = false,
+    String? type,
+  }) async {
+    final url = Uri.parse(
+      '$_erpBaseUrl/MSSIntegration_Interactions?company=$companyId',
+    );
+
+    final requestBody = <String, dynamic>{};
+    if (memberNo != null) requestBody['clientNo'] = memberNo; // API uses 'clientNo'
+    if (includeComments) requestBody['includeComments'] = 'True';
+    if (type != null) requestBody['type'] = type;
+
+    final body = jsonEncode({
+      "request":
+          "[{\"requestId\":01,\"method\":\"GET\",\"requestBody\":${jsonEncode(requestBody)}}]",
+    });
+
+    final response = await http.post(
+      url,
+      headers: {
+        'Authorization': 'Bearer $accessToken',
+        'Content-Type': 'application/json',
+      },
+      body: body,
+    );
+
+    print('📋 FETCH INTERACTIONS STATUS: ${response.statusCode}');
+    print('📋 FETCH INTERACTIONS RESPONSE: ${response.body}');
+
+    if (response.statusCode == 200) {
+      final outer = jsonDecode(response.body);
+      final inner = jsonDecode(outer['value']);
+
+      if (inner['values'] != null && inner['values'] is List) {
+        final outerValuesArray = inner['values'] as List;
+        
+        if (outerValuesArray.isNotEmpty) {
+          final responseWrapper = outerValuesArray[0];
+          
+          if (responseWrapper is Map<String, dynamic> && 
+              responseWrapper['values'] != null && 
+              responseWrapper['values'] is List) {
+            
+            final interactionsArray = responseWrapper['values'] as List;
+            return interactionsArray
+                .whereType<Map<String, dynamic>>()
+                .toList();
+          }
+        }
+      }
+      
+      return [];
+    } else {
+      throw Exception('Failed to fetch interactions (${response.statusCode})');
+    }
+  }
+
+  /// Create a new interaction (enquiry/complaint/feedback)
+  /// type: "Enquiry", "Complaint", "Feedback", "Other"
+  /// clientType: "Member", "Sponsor", "Trustee" (default: "Member")
+  static Future<Map<String, dynamic>> createInteraction({
+    required String accessToken,
+    required String memberNo,
+    required String type,
+    required String subject,
+    required String description,
+    String clientType = 'Member',
+  }) async {
+    final url = Uri.parse(
+      '$_erpBaseUrl/MSSIntegration_Interactions?company=$companyId',
+    );
+
+    final requestBody = {
+      'clientNo': memberNo, // API uses 'clientNo' not 'memberNo'
+      'clientType': clientType,
+      'type': type,
+      'message': description, // API uses 'message' not 'description'
+      'priority': 'Medium', // Default priority
+      // Note: API doesn't have a separate 'subject' field, it uses 'message'
+    };
+
+    final body = jsonEncode({
+      "request":
+          "[{\"requestId\":01,\"method\":\"POST\",\"requestBody\":${jsonEncode(requestBody)}}]",
+    });
+
+    print('📝 CREATE INTERACTION REQUEST: $body');
+
+    final response = await http.post(
+      url,
+      headers: {
+        'Authorization': 'Bearer $accessToken',
+        'Content-Type': 'application/json',
+      },
+      body: body,
+    );
+
+    print('📝 CREATE INTERACTION STATUS: ${response.statusCode}');
+    print('📝 CREATE INTERACTION RESPONSE: ${response.body}');
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      final outer = jsonDecode(response.body);
+      final inner = jsonDecode(outer['value']);
+
+      if (inner['values'] != null && inner['values'] is List) {
+        final valuesArray = inner['values'] as List;
+        if (valuesArray.isNotEmpty) {
+          final firstItem = valuesArray[0];
+          
+          if (firstItem is Map<String, dynamic>) {
+            if (firstItem['values'] != null && firstItem['values'] is Map) {
+              return firstItem['values'] as Map<String, dynamic>;
+            }
+            return firstItem;
+          }
+        }
+      }
+      
+      return {};
+    } else {
+      throw Exception('Failed to create interaction (${response.statusCode})');
+    }
+  }
+
+  /// Update an existing interaction
+  static Future<bool> updateInteraction({
+    required String accessToken,
+    required String interactionId,
+    Map<String, dynamic>? updates,
+  }) async {
+    final url = Uri.parse(
+      '$_erpBaseUrl/MSSIntegration_Interactions?company=$companyId',
+    );
+
+    final requestBody = {
+      'id': interactionId,
+      ...?updates,
+    };
+
+    final body = jsonEncode({
+      "request":
+          "[{\"requestId\":01,\"method\":\"PATCH\",\"requestBody\":${jsonEncode(requestBody)}}]",
+    });
+
+    final response = await http.post(
+      url,
+      headers: {
+        'Authorization': 'Bearer $accessToken',
+        'Content-Type': 'application/json',
+      },
+      body: body,
+    );
+
+    print('✏️ UPDATE INTERACTION STATUS: ${response.statusCode}');
+    return response.statusCode == 200;
+  }
+
+  /// Fetch comments for an interaction
+  static Future<List<Map<String, dynamic>>> fetchInteractionComments({
+    required String accessToken,
+    required String interactionId,
+  }) async {
+    final url = Uri.parse(
+      '$_erpBaseUrl/MSSIntegration_interactionComments?company=$companyId',
+    );
+
+    final body = jsonEncode({
+      "request":
+          "[{\"requestId\":01,\"method\":\"GET\",\"requestBody\":{\"interactionId\":\"$interactionId\"}}]",
+    });
+
+    final response = await http.post(
+      url,
+      headers: {
+        'Authorization': 'Bearer $accessToken',
+        'Content-Type': 'application/json',
+      },
+      body: body,
+    );
+
+    print('💬 FETCH COMMENTS STATUS: ${response.statusCode}');
+
+    if (response.statusCode == 200) {
+      final outer = jsonDecode(response.body);
+      final inner = jsonDecode(outer['value']);
+
+      if (inner['values'] != null && inner['values'] is List) {
+        final outerValuesArray = inner['values'] as List;
+        
+        if (outerValuesArray.isNotEmpty) {
+          final responseWrapper = outerValuesArray[0];
+          
+          if (responseWrapper is Map<String, dynamic> && 
+              responseWrapper['values'] != null && 
+              responseWrapper['values'] is List) {
+            
+            final commentsArray = responseWrapper['values'] as List;
+            return commentsArray
+                .whereType<Map<String, dynamic>>()
+                .toList();
+          }
+        }
+      }
+      
+      return [];
+    } else {
+      throw Exception('Failed to fetch comments (${response.statusCode})');
+    }
+  }
+
+  /// Add a comment/reply to an interaction
+  static Future<bool> addInteractionComment({
+    required String accessToken,
+    required String interactionId,
+    required String comment,
+  }) async {
+    final url = Uri.parse(
+      '$_erpBaseUrl/MSSIntegration_interactionComments?company=$companyId',
+    );
+
+    final requestBody = {
+      'interactionId': interactionId,
+      'comment': comment,
+    };
+
+    final body = jsonEncode({
+      "request":
+          "[{\"requestId\":01,\"method\":\"POST\",\"requestBody\":${jsonEncode(requestBody)}}]",
+    });
+
+    final response = await http.post(
+      url,
+      headers: {
+        'Authorization': 'Bearer $accessToken',
+        'Content-Type': 'application/json',
+      },
+      body: body,
+    );
+
+    print('💬 ADD COMMENT STATUS: ${response.statusCode}');
+    return response.statusCode == 200 || response.statusCode == 201;
+  }
+
+  /// Delete an interaction
+  static Future<bool> deleteInteraction({
+    required String accessToken,
+    required String interactionId,
+  }) async {
+    final url = Uri.parse(
+      '$_erpBaseUrl/MSSIntegration_Interactions?company=$companyId',
+    );
+
+    final body = jsonEncode({
+      "request":
+          "[{\"requestId\":01,\"method\":\"DELETE\",\"requestBody\":{\"id\":\"$interactionId\"}}]",
+    });
+
+    final response = await http.post(
+      url,
+      headers: {
+        'Authorization': 'Bearer $accessToken',
+        'Content-Type': 'application/json',
+      },
+      body: body,
+    );
+
+    print('🗑️ DELETE INTERACTION STATUS: ${response.statusCode}');
+    return response.statusCode == 200;
+  }
+
+
+// Add this method to your ApiService class in api_service.dart
+
+static Future<List<Map<String, dynamic>>> fetchChangeRequestsHistory({
+  required String accessToken,
+  required String memberNo,
+}) async {
+  final url = Uri.parse(
+    '$_erpBaseUrl/MSSIntegration_MemberChanges?company=$companyId',
+  );
+
+  final body = jsonEncode({
+    "request":
+        "[{\"requestId\":01,\"method\":\"GET\",\"requestBody\":{\"memberNo\":\"$memberNo\"}}]",
+  });
+
+  final response = await http.post(
+    url,
+    headers: {
+      'Authorization': 'Bearer $accessToken',
+      'Content-Type': 'application/json',
+    },
+    body: body,
+  );
+
+  print('📋 FETCH CHANGE REQUESTS STATUS: ${response.statusCode}');
+
+  if (response.statusCode == 200) {
+    try {
+      // Level 1: OData response
+      final odataResponse = jsonDecode(response.body);
+      
+      // Level 2: The 'value' field contains a JSON string
+      final valueString = odataResponse['value'] as String;
+      final valueJson = jsonDecode(valueString);
+      
+      // Level 3: Get the 'values' array
+      if (valueJson['values'] != null && valueJson['values'] is List) {
+        final requestWrappers = valueJson['values'] as List;
+        
+        if (requestWrappers.isNotEmpty) {
+          // Level 4: Get the first request wrapper
+          final firstWrapper = requestWrappers[0] as Map<String, dynamic>;
+          
+          // Level 5: Get the actual change requests array
+          if (firstWrapper['values'] != null && firstWrapper['values'] is List) {
+            final changeRequests = firstWrapper['values'] as List;
+            
+            print('📋 Successfully fetched ${changeRequests.length} change request(s)');
+            
+            // Parse each change request and handle nested JSON strings
+            final parsedRequests = changeRequests.map((request) {
+              if (request is Map<String, dynamic>) {
+                final Map<String, dynamic> parsedRequest = Map.from(request);
+                
+                // Parse nested JSON strings for related changes
+                if (parsedRequest['nokChanges'] is String) {
+                  try {
+                    parsedRequest['nokChanges'] = jsonDecode(parsedRequest['nokChanges']);
+                  } catch (e) {
+                    print('⚠️ Failed to parse nokChanges: $e');
+                  }
+                }
+                
+                if (parsedRequest['beneficiaryChanges'] is String) {
+                  try {
+                    parsedRequest['beneficiaryChanges'] = jsonDecode(parsedRequest['beneficiaryChanges']);
+                  } catch (e) {
+                    print('⚠️ Failed to parse beneficiaryChanges: $e');
+                  }
+                }
+                
+                if (parsedRequest['spouseChanges'] is String) {
+                  try {
+                    parsedRequest['spouseChanges'] = jsonDecode(parsedRequest['spouseChanges']);
+                  } catch (e) {
+                    print('⚠️ Failed to parse spouseChanges: $e');
+                  }
+                }
+                
+                if (parsedRequest['guardianChanges'] is String) {
+                  try {
+                    parsedRequest['guardianChanges'] = jsonDecode(parsedRequest['guardianChanges']);
+                  } catch (e) {
+                    print('⚠️ Failed to parse guardianChanges: $e');
+                  }
+                }
+                
+                return parsedRequest;
+              }
+              return request;
+            }).whereType<Map<String, dynamic>>().toList();
+            
+            return parsedRequests;
+          }
+        }
+      }
+      
+      print('⚠️ No change requests found in response');
+      return [];
+    } catch (e, stackTrace) {
+      print('❌ Error parsing change requests: $e');
+      print('Stack trace: $stackTrace');
+      return [];
+    }
+  } else {
+    throw Exception('Failed to fetch change requests history (${response.statusCode})');
+  }
+}
+static Future<Map<String, dynamic>> fetchMemberContributionSummary({
+    required String accessToken,
+    required String memberNo,
+  }) async {
+    final url = Uri.parse(
+      '$_erpBaseUrl/MSSIntegration_MemberContributionSummary?company=$companyId',
+    );
+
+    final body = jsonEncode({
+      "request":
+          "[{\"requestId\":01,\"method\":\"GET\",\"requestBody\":{\"memberNo\":\"$memberNo\"}}]",
+    });
+
+    final response = await http.post(
+      url,
+      headers: {
+        'Authorization': 'Bearer $accessToken',
+        'Content-Type': 'application/json',
+      },
+      body: body,
+    );
+
+    print('💰 CONTRIBUTION SUMMARY STATUS: ${response.statusCode}');
+    print('💰 CONTRIBUTION SUMMARY RESPONSE: ${response.body}');
+
+    if (response.statusCode == 200) {
+      final outer = jsonDecode(response.body);
+      final inner = jsonDecode(outer['value']);
+
+      if (inner['values'] != null && inner['values'] is List) {
+        final valuesArray = inner['values'] as List;
+        if (valuesArray.isNotEmpty) {
+          final firstItem = valuesArray[0];
+          
+          if (firstItem is Map<String, dynamic>) {
+            return firstItem;
+          }
+        }
+      }
+      
+      throw Exception('Invalid contribution summary response structure');
+    } else {
+      throw Exception(
+        'Failed to fetch contribution summary (${response.statusCode})',
+      );
+    }
+  }
+
+  /// WORKAROUND: Parse contribution data from member statement PDF
+  /// This is a temporary solution until backend provides JSON endpoint
+  static Future<Map<String, double>> extractContributionDataFromPDF({
+    required String accessToken,
+    required String memberNo,
+  }) async {
+    try {
+      // Generate the member statement
+      final base64GzipPdf = await ApiService.generateMemberStatement(
+        accessToken: accessToken,
+        memberNo: memberNo,
+        startDate: '2020-01-01', // Adjust based on your needs
+        endDate: DateTime.now().toString().split(' ')[0],
+      );
+
+      // Decompress the PDF
+      final gzipBytes = base64Decode(base64GzipPdf);
+      final pdfBytes = GZipDecoder().decodeBytes(gzipBytes);
+
+      // Note: Parsing PDF is complex and error-prone
+      // This is why we recommend asking for a JSON endpoint instead
+      
+      // For now, we'll return the structure based on the PDF format
+      // In a real implementation, you'd need a PDF parsing library
+      
+      print('⚠️ PDF parsing not fully implemented');
+      print('📄 PDF size: ${pdfBytes.length} bytes');
+      
+      // Return zeros for now - this needs proper PDF parsing
+      return {
+        'employerContributions': 0.0,
+        'memberContributions': 0.0,
+        'interestEarned': 0.0,
+        'avcContributions': 0.0,
+        'prmfContributions': 0.0,
+        'nssfContributions': 0.0,
+        'totalContributions': 0.0,
+      };
+    } catch (e) {
+      print('❌ Error extracting contribution data from PDF: $e');
+      rethrow;
+    }
+  }
+
+  /// Get yearly contribution data from contribution statement
+  static Future<Map<String, dynamic>> extractYearlyContributions({
+    required String accessToken,
+    required String memberNo,
+    int? year,
+  }) async {
+    try {
+      final currentYear = year ?? DateTime.now().year;
+      
+      final base64GzipPdf = await ApiService.generateContributionStatement(
+        accessToken: accessToken,
+        memberNo: memberNo,
+        startDate: '$currentYear-01-01',
+        endDate: '$currentYear-12-31',
+      );
+
+      // Decompress the PDF
+      final gzipBytes = base64Decode(base64GzipPdf);
+      final pdfBytes = GZipDecoder().decodeBytes(gzipBytes);
+
+      print('⚠️ Contribution statement PDF parsing not fully implemented');
+      print('📄 PDF size: ${pdfBytes.length} bytes');
+
+      // The contribution statement has:
+      // - Monthly columns (January - December)
+      // - Rows: EE, ER, AVC, EE PRMF, ER PRMF, EE NSSF Tier II, ER NSSF Tier II
+      // - Grand Total column
+      
+      return {
+        'year': currentYear,
+        'totalEE': 0.0,        // Employee contributions
+        'totalER': 0.0,        // Employer contributions
+        'totalAVC': 0.0,       // Additional Voluntary Contributions
+        'totalPRMF': 0.0,      // PRMF contributions
+        'totalNSSF': 0.0,      // NSSF Tier II contributions
+        'grandTotal': 0.0,     // Sum of all
+        'contributionCount': 0, // Number of months with contributions
+      };
+    } catch (e) {
+      print('❌ Error extracting yearly contributions: $e');
+      rethrow;
+    }
+  }
+
+  // Add these methods to api_service.dart
+
+static Future<List<Map<String, dynamic>>> fetchSpouseChanges({
   required String accessToken,
   required String changeRequestNo,
 }) async {
   final url = Uri.parse(
-    '$_erpBaseUrl/MSSIntegration_MemberNOKChanges?company=$companyId',
+    '$_erpBaseUrl/MSSIntegration_MemberSpouseChanges?company=$companyId',
   );
 
   final body = jsonEncode({
@@ -1083,7 +1673,7 @@ static Future<List<Map<String, dynamic>>> fetchNOKChanges({
     body: body,
   );
 
-  print('📋 FETCH NOK CHANGES STATUS: ${response.statusCode}');
+  print('📋 FETCH SPOUSE CHANGES STATUS: ${response.statusCode}');
 
   if (response.statusCode == 200) {
     final outer = jsonDecode(response.body);
@@ -1099,8 +1689,8 @@ static Future<List<Map<String, dynamic>>> fetchNOKChanges({
             responseWrapper['values'] != null && 
             responseWrapper['values'] is List) {
           
-          final nokArray = responseWrapper['values'] as List;
-          return nokArray
+          final spousesArray = responseWrapper['values'] as List;
+          return spousesArray
               .whereType<Map<String, dynamic>>()
               .toList();
         }
@@ -1109,24 +1699,23 @@ static Future<List<Map<String, dynamic>>> fetchNOKChanges({
     
     return [];
   } else {
-    throw Exception('Failed to fetch NOK changes (${response.statusCode})');
+    throw Exception('Failed to fetch spouse changes (${response.statusCode})');
   }
 }
 
-/// Update Next of Kin in change request
-static Future<bool> updateNOKChanges({
+static Future<bool> updateSpouseChanges({
   required String accessToken,
-  required Map<String, dynamic> nextOfKin, // SINGLE object
+  required Map<String, dynamic> spouse,
 }) async {
   final url = Uri.parse(
-    '$_erpBaseUrl/MSSIntegration_MemberNOKChanges?company=$companyId',
+    '$_erpBaseUrl/MSSIntegration_MemberSpouseChanges?company=$companyId',
   );
 
   final requestList = [
     {
       "requestId": 1,
       "method": "PATCH",
-      "requestBody": nextOfKin, // must include 'id' + 'changeRequestNo'
+      "requestBody": spouse,
     }
   ];
 
@@ -1134,7 +1723,7 @@ static Future<bool> updateNOKChanges({
     "request": jsonEncode(requestList).replaceAll(RegExp(r'\s+'), ''),
   });
 
-  print('📝 UPDATE NOK REQUEST BODY: $body');
+  print('📝 UPDATE SPOUSE REQUEST BODY: $body');
 
   final response = await http.post(
     url,
@@ -1145,38 +1734,94 @@ static Future<bool> updateNOKChanges({
     body: body,
   );
 
-  print('📝 UPDATE NOK STATUS: ${response.statusCode}');
-  print('📝 UPDATE NOK RESPONSE: ${response.body}');
+  print('📝 UPDATE SPOUSE STATUS: ${response.statusCode}');
+  print('📝 UPDATE SPOUSE RESPONSE: ${response.body}');
 
   return response.statusCode == 200;
 }
 
-/// Delete Next of Kin from change request
-static Future<bool> deleteNOKChange({
-  required String accessToken,
-  required String changeRequestId,
-  required String nokLineNo,
+// Add these methods to your existing ApiService class in api_service.dart
+
+/// Request password reset OTP
+static Future<Map<String, dynamic>> forgotPassword({
+  required String emailAddress,
 }) async {
-  final url = Uri.parse(
-    '$_erpBaseUrl/MSSIntegration_MemberNOKChanges?company=$companyId',
+  final url = Uri.parse('$_baseUrl/auth/forgotPassword?emailAddress=$emailAddress');
+
+  final response = await http.post(
+    url,
+    headers: {'Content-Type': 'application/json'},
   );
 
-  final body = jsonEncode({
-    "request":
-        "[{\"requestId\":01,\"method\":\"DELETE\",\"requestBody\":{\"changeRequestId\":\"$changeRequestId\",\"lineNo\":\"$nokLineNo\"}}]",
-  });
+  print('FORGOT PASSWORD STATUS: ${response.statusCode}');
+  print('FORGOT PASSWORD RESPONSE: ${response.body}');
+
+  if (response.statusCode == 200 || response.statusCode == 201) {
+    return jsonDecode(response.body);
+  } else {
+    throw Exception(
+      jsonDecode(response.body)['message'] ?? 'Failed to send OTP',
+    );
+  }
+}
+
+/// Verify OTP for password reset
+static Future<Map<String, dynamic>> verifyOtp({
+  required String emailAddress,
+  required int otp,
+}) async {
+  final url = Uri.parse('$_baseUrl/auth/forgot/verifyOtp');
+
+  final response = await http.post(
+    url,
+    headers: {'Content-Type': 'application/json'},
+    body: jsonEncode({
+      "emailAddress": emailAddress,
+      "otp": otp,
+    }),
+  );
+
+  print('VERIFY OTP STATUS: ${response.statusCode}');
+  print('VERIFY OTP RESPONSE: ${response.body}');
+
+  if (response.statusCode == 200 || response.statusCode == 201) {
+    return jsonDecode(response.body);
+  } else {
+    throw Exception(
+      jsonDecode(response.body)['message'] ?? 'Invalid OTP',
+    );
+  }
+}
+
+/// Change password with reset token (for password reset flow)
+static Future<Map<String, dynamic>> changePasswordWithToken({
+  required String emailAddress,
+  required String password,
+  required String token,
+}) async {
+  final url = Uri.parse('$_baseUrl/user/changePassword');
 
   final response = await http.post(
     url,
     headers: {
-      'Authorization': 'Bearer $accessToken',
       'Content-Type': 'application/json',
+      'Authorization': 'Bearer $token',
     },
-    body: body,
+    body: jsonEncode({
+      "emailAddress": emailAddress,
+      "password": password,
+    }),
   );
 
-  print('🗑️ DELETE NOK STATUS: ${response.statusCode}');
+  print('CHANGE PASSWORD STATUS: ${response.statusCode}');
+  print('CHANGE PASSWORD RESPONSE: ${response.body}');
 
-  return response.statusCode == 200;
+  if (response.statusCode == 200 || response.statusCode == 201) {
+    return jsonDecode(response.body);
+  } else {
+    throw Exception(
+      jsonDecode(response.body)['message'] ?? 'Failed to reset password',
+    );
+  }
 }
 }

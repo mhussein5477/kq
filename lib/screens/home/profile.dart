@@ -1,15 +1,86 @@
 import 'dart:convert';
-
 import 'package:flutter/material.dart';
+import 'package:kq/screens/auth/login.dart';
+import 'package:kq/screens/home/changeRequestHistoryScreen.dart';
 import 'package:kq/screens/home/editBeneficiaries.dart';
 import 'package:kq/screens/home/editNextOfKin.dart';
 import 'package:kq/screens/home/editProfile.dart';
+import 'package:kq/screens/home/editSpouses.dart';
 import 'package:kq/screens/home/settings.dart';
-import 'package:kq/screens/home/test.dart';
 import 'package:kq/services/api_service.dart';
+import 'package:kq/services/interceptor.dart';
 import 'package:kq/services/secure_storage_service.dart';
 
-// Profile Screen
+// ============================================================================
+// THEME & COLOR CONSTANTS
+// ============================================================================
+
+class AppColors {
+  static const primary = Color(0xFFE31E24);
+  static const success = Color(0xFF10B981);
+  static const warning = Color(0xFFFFA500);
+  static const textPrimary = Color(0xFF1A1A1A);
+  static const textSecondary = Color(0xFF666666);
+  static const textTertiary = Color(0xFF999999);
+  static const backgroundLight = Color(0xFFF5F5F8);
+  static const backgroundDark = Color(0xFF121212);
+  static const surfaceDark = Color(0xFF1E1E1E);
+  static const surfaceDarker = Color(0xFF2A2A2A);
+}
+
+// ============================================================================
+// TOKEN EXPIRATION MIXIN
+// ============================================================================
+
+mixin TokenExpiredHandler {
+  BuildContext get context;
+
+  void handleTokenExpired() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.timer_off, color: Colors.orange[700]),
+            const SizedBox(width: 12),
+            const Text('Session Expired'),
+          ],
+        ),
+        content: const Text(
+          'Your session has expired. Please login again to continue.',
+          style: TextStyle(fontSize: 15),
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () async {
+              await SecureStorageService.clearAuth();
+              if (context.mounted) {
+                Navigator.of(context).pop();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const LoginScreen(),
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Login Again'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// PROFILE SCREEN
+// ============================================================================
+
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -17,18 +88,17 @@ class ProfileScreen extends StatefulWidget {
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen> {
+class _ProfileScreenState extends State<ProfileScreen> with TokenExpiredHandler {
   Map<String, dynamic>? _memberData;
-
   int _selectedTabIndex = 0;
   int _trusteesTabIndex = 0;
   List<Map<String, dynamic>> _spouses = [];
   List<Map<String, dynamic>> _guardians = [];
-  bool _isSpousesLoading = true;
-  bool _isGuardiansLoading = true;
-
   List<Map<String, dynamic>> _beneficiaries = [];
   List<Map<String, dynamic>> _nextOfKin = [];
+  
+  bool _isSpousesLoading = true;
+  bool _isGuardiansLoading = true;
   bool _isTrusteesLoading = true;
 
   @override
@@ -41,12 +111,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _loadSpousesAndGuardians() async {
     try {
+      await ApiTokenInterceptor.getValidTokenOrThrow();
+
       final accessToken = await SecureStorageService.getAccessToken();
       final memberDetails = await SecureStorageService.getMemberDetails();
       final memberNo = memberDetails['memberNo'];
 
-      if (accessToken == null || memberNo == null)
+      if (accessToken == null || memberNo == null) {
         throw Exception('Missing auth data');
+      }
 
       final spouses = await ApiService.fetchMemberSpouses(
         accessToken: accessToken,
@@ -64,6 +137,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _isSpousesLoading = false;
         _isGuardiansLoading = false;
       });
+    } on TokenExpiredException catch (e) {
+      print('Token expired: $e');
+      if (mounted) {
+        handleTokenExpired();
+      }
     } catch (e) {
       debugPrint('Spouses/Guardians load error: $e');
       setState(() {
@@ -75,6 +153,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _loadMemberDetails() async {
     try {
+      await ApiTokenInterceptor.getValidTokenOrThrow();
+
       final accessToken = await SecureStorageService.getAccessToken();
       final memberDetails = await SecureStorageService.getMemberDetails();
       final memberNo = memberDetails['memberNo'];
@@ -88,15 +168,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
         memberNo: memberNo,
       );
 
-      // 1️⃣ Decode stringified JSON
       final decodedValue = jsonDecode(response['value']);
-
-      // 2️⃣ Extract member object
       final member = decodedValue['values'][0][0];
 
       setState(() {
-        _memberData = member; // ✅ store the actual member object
+        _memberData = member;
       });
+    } on TokenExpiredException catch (e) {
+      print('Token expired: $e');
+      if (mounted) {
+        handleTokenExpired();
+      }
     } catch (e) {
       setState(() {});
     }
@@ -104,6 +186,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _loadTrusteesData() async {
     try {
+      await ApiTokenInterceptor.getValidTokenOrThrow();
+
       final accessToken = await SecureStorageService.getAccessToken();
       final memberDetails = await SecureStorageService.getMemberDetails();
       final memberNo = memberDetails['memberNo'];
@@ -127,6 +211,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _nextOfKin = nextOfKin;
         _isTrusteesLoading = false;
       });
+    } on TokenExpiredException catch (e) {
+      print('Token expired: $e');
+      if (mounted) {
+        handleTokenExpired();
+      }
     } catch (e) {
       debugPrint('Trustees load error: $e');
       setState(() => _isTrusteesLoading = false);
@@ -135,98 +224,157 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F8),
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: SingleChildScrollView(
         child: Column(
           children: [
-            // Header Section
-            Container(
-              width: double.infinity,
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Color(0xFFE31E24), Color.fromARGB(255, 77, 10, 10)],
-                ),
-              ),
-              child: Column(
-                children: [
-                  const SizedBox(height: 16),
-                  Align(
-                    alignment: Alignment.topRight,
-                    child: IconButton(
-                      icon: const Icon(Icons.settings, color: Colors.white),
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const SettingsScreen(),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 3),
-                    ),
-                    child: const CircleAvatar(
-                      radius: 20,
-                      backgroundColor: Colors.white24,
-                      child: Icon(Icons.person, size: 24, color: Colors.white),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    _memberData?['name'] ?? '—',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Member ID: ${_memberData?['no'] ?? '—'}',
-                    style: TextStyle(color: Colors.white70, fontSize: 14),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Tab Pills
-                  Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 16),
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(25),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(child: _buildTabPill('Personal', 0)),
-                        Expanded(
-                          child: _buildTabPill('Spouses / Guardians', 1),
-                        ),
-                        Expanded(
-                          child: _buildTabPill('Beneficiaries / Kin', 2),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                ],
-              ),
-            ),
-
-            // Content Area BELOW
+            _buildHeaderSection(isDarkMode),
             Padding(
               padding: const EdgeInsets.all(18.0),
-              child: _buildTabContent(),
+              child: _buildTabContent(isDarkMode, theme),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildHeaderSection(bool isDarkMode) {
+    return Container(
+      width: double.infinity,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFFE31E24), Color.fromARGB(255, 77, 10, 10)],
+        ),
+      ),
+      child: Column(
+        children: [
+          const SizedBox(height: 56),
+          Align(
+            alignment: Alignment.topRight,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: InkWell(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const SettingsScreen(),
+                    ),
+                  );
+                },
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.3),
+                      width: 1,
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.settings,
+                    color: Colors.white,
+                    size: 22,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 3),
+            ),
+            child: const CircleAvatar(
+              radius: 20,
+              backgroundColor: Colors.white24,
+              child: Icon(Icons.person, size: 24, color: Colors.white),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            _memberData?['name'] ?? '—',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Member ID: ${_memberData?['no'] ?? '—'}',
+            style: const TextStyle(color: Colors.white70, fontSize: 14),
+          ),
+          const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: InkWell(
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const ChangeRequestsHistoryScreen(),
+                  ),
+                );
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: Colors.white.withOpacity(0.3),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.history, color: Colors.white, size: 20),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'View Change Requests',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    const Icon(Icons.arrow_forward_ios, color: Colors.white, size: 14),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(25),
+            ),
+            child: Row(
+              children: [
+                Expanded(child: _buildTabPill('Personal', 0)),
+                Expanded(child: _buildTabPill('Spouses / Guardians', 1)),
+                Expanded(child: _buildTabPill('Beneficiaries / Kin', 2)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
       ),
     );
   }
@@ -247,9 +395,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           label,
           textAlign: TextAlign.center,
           style: TextStyle(
-            color: isSelected
-                ? const Color.fromARGB(255, 0, 0, 0)
-                : Colors.black,
+            color: isSelected ? Colors.black : Colors.black,
             fontSize: 11,
             fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
           ),
@@ -260,19 +406,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildSecondaryTab(String label, int index) {
     final isSelected = _trusteesTabIndex == index;
-
     return GestureDetector(
-      onTap: () {
-        setState(() {
-          _trusteesTabIndex = index;
-        });
-      },
+      onTap: () => setState(() => _trusteesTabIndex = index),
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 8),
         decoration: BoxDecoration(
           border: Border(
             bottom: BorderSide(
-              color: isSelected ? const Color(0xFFE31E24) : Colors.transparent,
+              color: isSelected ? AppColors.primary : Colors.transparent,
               width: 2,
             ),
           ),
@@ -281,7 +422,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           label,
           textAlign: TextAlign.center,
           style: TextStyle(
-            color: isSelected ? const Color(0xFFE31E24) : Colors.black54,
+            color: isSelected ? AppColors.primary : Colors.black54,
             fontSize: 14,
             fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
           ),
@@ -290,31 +431,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildTabContent() {
+  Widget _buildTabContent(bool isDarkMode, ThemeData theme) {
     switch (_selectedTabIndex) {
       case 0:
-        return _buildPersonalTab();
+        return _buildPersonalTab(isDarkMode, theme);
       case 1:
-        return _buildSpousesGuardiansTab();
+        return _buildSpousesGuardiansTab(isDarkMode, theme);
       case 2:
-        return _buildTrusteesTab();
+        return _buildTrusteesTab(isDarkMode, theme);
       default:
         return const SizedBox();
     }
   }
 
-  Widget _buildPersonalTab() {
+  Widget _buildPersonalTab(bool isDarkMode, ThemeData theme) {
     final member = _memberData;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'Personal',
           style: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.bold,
-            color: Colors.black,
+            color: isDarkMode ? Colors.white : AppColors.textPrimary,
           ),
         ),
         const SizedBox(height: 4),
@@ -323,28 +464,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
           style: TextStyle(fontSize: 13, color: Colors.grey[600]),
         ),
         const SizedBox(height: 20),
-
         _buildInfoField(
           'Full Name',
           member != null
               ? '${member['firstName'] ?? ''} ${member['otherName'] ?? ''} ${member['lastName'] ?? ''}'
-                    .trim()
+                  .trim()
               : '—',
+          isDarkMode,
         ),
-        _buildInfoField('ID Number', member?['idNo'] ?? '—'),
-        _buildInfoField('KRA PIN', member?['pin'] ?? '—'),
-        _buildInfoField('Date of Birth', member?['dateOfBirth'] ?? '—'),
-        _buildInfoField('Gender', member?['gender'] ?? '—'),
-        _buildInfoField('Email', member?['emailAddress'] ?? '—'),
-        _buildInfoField('Phone Number', member?['phoneNo'] ?? '—'),
+        _buildInfoField('ID Number', member?['idNo'] ?? '—', isDarkMode),
+        _buildInfoField('KRA PIN', member?['pin'] ?? '—', isDarkMode),
+        _buildInfoField('Date of Birth', member?['dateOfBirth'] ?? '—', isDarkMode),
+        _buildInfoField('Gender', member?['gender'] ?? '—', isDarkMode),
+        _buildInfoField('Email', member?['emailAddress'] ?? '—', isDarkMode),
+        _buildInfoField('Phone Number', member?['phoneNo'] ?? '—', isDarkMode),
         _buildInfoField(
           'Postal Address',
           member != null
               ? '${member['address'] ?? ''}, ${member['city'] ?? ''}, ${member['country'] ?? ''}'
-                    .replaceAll(RegExp(r'(^,|,$)'), '')
+                  .replaceAll(RegExp(r'(^,|,$)'), '')
               : '—',
+          isDarkMode,
         ),
-
         const SizedBox(height: 24),
         SizedBox(
           width: double.infinity,
@@ -360,7 +501,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             icon: const Icon(Icons.edit, size: 18),
             label: const Text('Edit Profile'),
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFE31E24),
+              backgroundColor: AppColors.primary,
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(vertical: 14),
               shape: RoundedRectangleBorder(
@@ -373,16 +514,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildSpousesGuardiansTab() {
+  Widget _buildSpousesGuardiansTab(bool isDarkMode, ThemeData theme) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'Spouses & Guardians',
           style: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.bold,
-            color: Colors.black,
+            color: isDarkMode ? Colors.white : AppColors.textPrimary,
           ),
         ),
         const SizedBox(height: 4),
@@ -391,82 +532,127 @@ class _ProfileScreenState extends State<ProfileScreen> {
           style: TextStyle(fontSize: 13, color: Colors.grey[600]),
         ),
         const SizedBox(height: 20),
-
-        // Spouses List
-        const Text('Spouses', style: TextStyle(fontWeight: FontWeight.bold)),
+        Text(
+          'Spouses',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: isDarkMode ? Colors.white : AppColors.textPrimary,
+          ),
+        ),
         const SizedBox(height: 8),
         _isSpousesLoading
             ? const Center(child: CircularProgressIndicator())
             : _spouses.isEmpty
-            ? const Text('No spouses found')
-            : Column(
-                children: _spouses.map((s) {
-                  final fullName =
-                      [s['firstName'], s['otherNames'], s['surName']]
-                          .where((e) => e != null && e.toString().isNotEmpty)
-                          .join(' ');
-
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _buildGenericCard(
-                      name: fullName.isNotEmpty ? fullName : '—',
-                      relationship: s['relationship'] ?? '—',
-                      phone: s['phoneNo']?.toString().isNotEmpty == true
-                          ? s['phoneNo']
-                          : '—',
-                      email: s['emailAddress']?.toString().isNotEmpty == true
-                          ? s['emailAddress']
-                          : '—',
-                      address: s['address']?.toString().isNotEmpty == true
-                          ? s['address']
-                          : '—',
+                ? Text(
+                    'No spouses found',
+                    style: TextStyle(
+                      color: isDarkMode ? Colors.white70 : Colors.black54,
                     ),
-                  );
-                }).toList(),
-              ),
+                  )
+                : Column(
+                    children: _spouses.map((s) {
+                      final fullName =
+                          [s['firstName'], s['otherNames'], s['surName']]
+                              .where((e) => e != null && e.toString().isNotEmpty)
+                              .join(' ');
 
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _buildGenericCard(
+                          name: fullName.isNotEmpty ? fullName : '—',
+                          relationship: s['relationship'] ?? '—',
+                          phone: s['phoneNo']?.toString().isNotEmpty == true
+                              ? s['phoneNo']
+                              : '—',
+                          email: s['emailAddress']?.toString().isNotEmpty == true
+                              ? s['emailAddress']
+                              : '—',
+                          address: s['address']?.toString().isNotEmpty == true
+                              ? s['address']
+                              : '—',
+                          isDarkMode: isDarkMode,
+                          theme: theme,
+                        ),
+                      );
+                    }).toList(),
+                  ),
         const SizedBox(height: 20),
-        // Guardians List
-        const Text('Guardians', style: TextStyle(fontWeight: FontWeight.bold)),
+        Text(
+          'Guardians',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: isDarkMode ? Colors.white : AppColors.textPrimary,
+          ),
+        ),
         const SizedBox(height: 8),
         _isGuardiansLoading
             ? const Center(child: CircularProgressIndicator())
             : _guardians.isEmpty
-            ? const Text('No guardians found')
-            : Column(
-                children: _guardians.map((g) {
-                  final fullName =
-                      [g['firstName'], g['otherNames'], g['surName']]
-                          .where((e) => e != null && e.toString().isNotEmpty)
-                          .join(' ');
-
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _buildGenericCard(
-                      name: fullName.isNotEmpty ? fullName : '—',
-                      relationship: g['relationship'] ?? '—',
-                      phone: g['phoneNo']?.toString().isNotEmpty == true
-                          ? g['phoneNo']
-                          : '—',
-                      email: g['emailAddress']?.toString().isNotEmpty == true
-                          ? g['emailAddress']
-                          : '—',
-                      address: g['address']?.toString().isNotEmpty == true
-                          ? g['address']
-                          : '—',
+                ? Text(
+                    'No guardians found',
+                    style: TextStyle(
+                      color: isDarkMode ? Colors.white70 : Colors.black54,
                     ),
-                  );
-                }).toList(),
+                  )
+                : Column(
+                    children: _guardians.map((g) {
+                      final fullName =
+                          [g['firstName'], g['otherNames'], g['surName']]
+                              .where((e) => e != null && e.toString().isNotEmpty)
+                              .join(' ');
+
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _buildGenericCard(
+                          name: fullName.isNotEmpty ? fullName : '—',
+                          relationship: g['relationship'] ?? '—',
+                          phone: g['phoneNo']?.toString().isNotEmpty == true
+                              ? g['phoneNo']
+                              : '—',
+                          email: g['emailAddress']?.toString().isNotEmpty == true
+                              ? g['emailAddress']
+                              : '—',
+                          address: g['address']?.toString().isNotEmpty == true
+                              ? g['address']
+                              : '—',
+                          isDarkMode: isDarkMode,
+                          theme: theme,
+                        ),
+                      );
+                    }).toList(),
+                  ),
+        const SizedBox(height: 24),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const EditSpousesScreen(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.edit, size: 18),
+            label: const Text('Edit Spouses'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(40),
               ),
+            ),
+          ),
+        ),
       ],
     );
   }
 
-  Widget _buildTrusteesTab() {
+  Widget _buildTrusteesTab(bool isDarkMode, ThemeData theme) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Secondary Tabs
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Row(
@@ -478,19 +664,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ),
         const SizedBox(height: 20),
-
-        // Tab Content
         AnimatedSwitcher(
           duration: const Duration(milliseconds: 250),
           child: _trusteesTabIndex == 0
-              ? _buildBeneficiariesContent()
-              : _buildNextOfKinContent(),
+              ? _buildBeneficiariesContent(isDarkMode, theme)
+              : _buildNextOfKinContent(isDarkMode, theme),
         ),
       ],
     );
   }
 
-  Widget _buildBeneficiariesContent() {
+  Widget _buildBeneficiariesContent(bool isDarkMode, ThemeData theme) {
     if (_isTrusteesLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -498,33 +682,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
     List<Widget> content = [];
 
     if (_beneficiaries.isEmpty) {
-      content.add(const Text('No beneficiaries found'));
+      content.add(
+        Text(
+          'No beneficiaries found',
+          style: TextStyle(
+            color: isDarkMode ? Colors.white70 : Colors.black54,
+          ),
+        ),
+      );
     } else {
       content.addAll(
         _beneficiaries.map((b) {
-          final fullName = [
-            b['firstName'],
-            b['otherNames'],
-            b['surName'],
-          ].where((e) => e != null && e.toString().isNotEmpty).join(' ');
+          final fullName = [b['firstName'], b['otherNames'], b['surName']]
+              .where((e) => e != null && e.toString().isNotEmpty)
+              .join(' ');
 
           return Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: _buildBeneficiaryCard(
               name: fullName.isNotEmpty ? fullName : '—',
               relationship: b['relationship'] ?? '—',
-              phone: b['phoneNo']?.toString().isNotEmpty == true
-                  ? b['phoneNo']
-                  : '—',
+              phone: b['phoneNo']?.toString().isNotEmpty == true ? b['phoneNo'] : '—',
               allocation: '${b['percentageBenefit'] ?? 0}%',
-              isPrimary: false, // backend does not provide this
+              isPrimary: false,
+              isDarkMode: isDarkMode,
+              theme: theme,
             ),
           );
         }).toList(),
       );
     }
 
-    // Add Edit Beneficiaries button
     content.add(const SizedBox(height: 16));
     content.add(
       SizedBox(
@@ -532,16 +720,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
         child: ElevatedButton.icon(
           onPressed: () {
             Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const EditBeneficiariesScreen(),
-                ),
-              );
+              context,
+              MaterialPageRoute(
+                builder: (context) => const EditBeneficiariesScreen(),
+              ),
+            );
           },
           icon: const Icon(Icons.edit, size: 18),
           label: const Text('Edit Beneficiaries'),
           style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFFE31E24),
+            backgroundColor: AppColors.primary,
             foregroundColor: Colors.white,
             padding: const EdgeInsets.symmetric(vertical: 14),
             shape: RoundedRectangleBorder(
@@ -558,7 +746,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildNextOfKinContent() {
+  Widget _buildNextOfKinContent(bool isDarkMode, ThemeData theme) {
     if (_isTrusteesLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -566,75 +754,47 @@ class _ProfileScreenState extends State<ProfileScreen> {
     List<Widget> content = [];
 
     if (_nextOfKin.isEmpty) {
-      content.add(const Text('No next of kin found'));
+      content.add(
+        Text(
+          'No next of kin found',
+          style: TextStyle(
+            color: isDarkMode ? Colors.white70 : Colors.black54,
+          ),
+        ),
+      );
     } else {
       content.addAll(
         _nextOfKin.map((k) {
-          final fullName = [
-            k['firstName'],
-            k['otherNames'],
-            k['surName'],
-          ].where((e) => e != null && e.toString().isNotEmpty).join(' ');
+          final fullName = [k['firstName'], k['otherNames'], k['surName']]
+              .where((e) => e != null && e.toString().isNotEmpty)
+              .join(' ');
 
           return Padding(
             padding: const EdgeInsets.only(bottom: 12),
-            child: SizedBox(
-              width: double.infinity,
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey[200]!),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      fullName.isNotEmpty ? fullName : '—',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Relationship: ${k['relationship']?.toString().isNotEmpty == true ? k['relationship'] : '—'}',
-                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Phone: ${k['phoneNo']?.toString().isNotEmpty == true ? k['phoneNo'] : '—'}',
-                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Email: ${k['emailAddress']?.toString().isNotEmpty == true ? k['emailAddress'] : '—'}',
-                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Address: ${k['address']?.toString().isNotEmpty == true ? k['address'] : '—'}',
-                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-                    ),
-                  ],
-                ),
-              ),
+            child: _buildGenericCard(
+              name: fullName.isNotEmpty ? fullName : '—',
+              relationship: k['relationship']?.toString().isNotEmpty == true
+                  ? k['relationship']
+                  : '—',
+              phone: k['phoneNo']?.toString().isNotEmpty == true ? k['phoneNo'] : '—',
+              email: k['emailAddress']?.toString().isNotEmpty == true
+                  ? k['emailAddress']
+                  : '—',
+              address: k['address']?.toString().isNotEmpty == true ? k['address'] : '—',
+              isDarkMode: isDarkMode,
+              theme: theme,
             ),
           );
         }).toList(),
       );
     }
 
-    // Add Edit Next of Kin button
     content.add(const SizedBox(height: 16));
     content.add(
       SizedBox(
         width: double.infinity,
         child: ElevatedButton.icon(
           onPressed: () {
-            // TODO: Navigate to edit next of kin screen
             Navigator.push(
               context,
               MaterialPageRoute(
@@ -645,7 +805,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           icon: const Icon(Icons.edit, size: 18),
           label: const Text('Edit Next of Kin'),
           style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFFE31E24),
+            backgroundColor: AppColors.primary,
             foregroundColor: Colors.white,
             padding: const EdgeInsets.symmetric(vertical: 14),
             shape: RoundedRectangleBorder(
@@ -662,13 +822,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildInfoField(String label, String value) {
+  Widget _buildInfoField(String label, String value, bool isDarkMode) {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       width: MediaQuery.of(context).size.width,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color.fromARGB(255, 234, 234, 255),
+        color: isDarkMode
+            ? AppColors.surfaceDarker
+            : const Color.fromARGB(255, 234, 234, 255),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
@@ -678,16 +840,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
             label,
             style: TextStyle(
               fontSize: 12,
-              color: Colors.grey[600],
+              color: isDarkMode ? Colors.white54 : Colors.grey[600],
               fontWeight: FontWeight.w500,
             ),
           ),
           const SizedBox(height: 4),
           Text(
             value,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 15,
-              color: Colors.black87,
+              color: isDarkMode ? Colors.white : Colors.black87,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -702,11 +864,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required String phone,
     required String allocation,
     required bool isPrimary,
+    required bool isDarkMode,
+    required ThemeData theme,
   }) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.cardColor,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.grey[200]!),
       ),
@@ -723,10 +887,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       children: [
                         Text(
                           name,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
-                            color: Colors.black,
+                            color: isDarkMode ? Colors.white : Colors.black,
                           ),
                         ),
                         if (isPrimary) ...[
@@ -737,7 +901,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFE31E24),
+                              color: AppColors.primary,
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: const Text(
@@ -755,7 +919,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     const SizedBox(height: 4),
                     Text(
                       relationship,
-                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: isDarkMode ? Colors.white70 : Colors.grey[600],
+                      ),
                     ),
                   ],
                 ),
@@ -768,7 +935,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFFE31E24),
+                      color: AppColors.primary,
                     ),
                   ),
                   Text(
@@ -793,9 +960,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 4),
           Text(
             phone,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 14,
-              color: Colors.black87,
+              color: isDarkMode ? Colors.white : Colors.black87,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -810,12 +977,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required String phone,
     required String email,
     required String address,
+    required bool isDarkMode,
+    required ThemeData theme,
   }) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.cardColor,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.grey[200]!),
       ),
@@ -824,27 +993,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
         children: [
           Text(
             name,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: isDarkMode ? Colors.white : Colors.black,
+            ),
           ),
           const SizedBox(height: 4),
           Text(
             'Relationship: $relationship',
-            style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+            style: TextStyle(
+              fontSize: 13,
+              color: isDarkMode ? Colors.white70 : Colors.grey[600],
+            ),
           ),
           const SizedBox(height: 4),
           Text(
             'Phone: $phone',
-            style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+            style: TextStyle(
+              fontSize: 13,
+              color: isDarkMode ? Colors.white70 : Colors.grey[600],
+            ),
           ),
           const SizedBox(height: 4),
           Text(
             'Email: $email',
-            style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+            style: TextStyle(
+              fontSize: 13,
+              color: isDarkMode ? Colors.white70 : Colors.grey[600],
+            ),
           ),
           const SizedBox(height: 4),
           Text(
             'Address: $address',
-            style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+            style: TextStyle(
+              fontSize: 13,
+              color: isDarkMode ? Colors.white70 : Colors.grey[600],
+            ),
           ),
         ],
       ),

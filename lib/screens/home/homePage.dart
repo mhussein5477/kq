@@ -25,6 +25,8 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    
     return Scaffold(
       body: _pages[_selectedIndex],
 
@@ -59,8 +61,8 @@ class _HomePageState extends State<HomePage> {
           },
           height: 70,
           elevation: 3,
-          surfaceTintColor: Colors.white,
-          backgroundColor: Colors.white,
+          surfaceTintColor: isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
+          backgroundColor: isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
 
           destinations: const [
             NavigationDestination(

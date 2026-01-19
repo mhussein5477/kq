@@ -1,5 +1,6 @@
 import 'package:expressive_loading_indicator/expressive_loading_indicator.dart';
 import 'package:flutter/material.dart';
+import 'package:kq/screens/auth/forgotPass.dart';
 import 'package:kq/screens/auth/register.dart';
 import 'package:kq/screens/auth/verifyOtp.dart';
 import 'package:kq/services/secure_storage_service.dart';
@@ -22,12 +23,44 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool _obscurePassword = true;
   bool _isLoading = false;
+  bool _hasTriedAutoAuth = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkAndTriggerBiometrics();
+  }
 
   @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  Future<void> _checkAndTriggerBiometrics() async {
+    if (_hasTriedAutoAuth) return;
+    _hasTriedAutoAuth = true;
+
+    try {
+      final creds = await SecureStorageService.getCredentials();
+      final email = creds['email'];
+      final password = creds['password'];
+
+      if (email == null || password == null) {
+        return;
+      }
+
+      final canCheckBiometrics = await _localAuth.canCheckBiometrics;
+      if (!canCheckBiometrics) {
+        return;
+      }
+
+      await Future.delayed(const Duration(milliseconds: 500));
+      await _handleFingerprintLogin();
+    } catch (e) {
+      print('Auto-auth failed: $e');
+    }
   }
 
   Future<void> _handleFingerprintLogin() async {
@@ -47,7 +80,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (!authenticated) return;
 
-      // 🔐 Get saved credentials
       final creds = await SecureStorageService.getCredentials();
       final email = creds['email'];
       final password = creds['password'];
@@ -56,15 +88,14 @@ class _LoginScreenState extends State<LoginScreen> {
         throw Exception('No saved credentials found');
       }
 
-      // ✅ Autofill
       setState(() {
         _emailController.text = email;
         _passwordController.text = password;
       });
 
-      // 🚀 Auto login
       await _handleSignIn();
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.toString().replaceAll('Exception: ', ''))),
       );
@@ -97,11 +128,9 @@ class _LoginScreenState extends State<LoginScreen> {
       final data = loginResponse['data'];
       if (data == null) throw Exception('Login data not found');
 
-      // 1️⃣ Save MFA token
       final String mfaToken = data['mfaToken'] ?? '';
       await SecureStorageService.saveMfaToken(mfaToken);
 
-      // 2️⃣ Save credentials for autofill / fingerprint login
       await SecureStorageService.saveCredentials(
         email: email,
         password: password,
@@ -109,7 +138,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (!mounted) return;
 
-      // Navigate to OTP screen with MFA token
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) =>
@@ -139,19 +167,22 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: SafeArea(
         child: SingleChildScrollView(
           child: Container(
             width: double.infinity,
             height: MediaQuery.of(context).size.height,
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: theme.cardColor,
               borderRadius: BorderRadius.circular(16),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
+                  color: Colors.black.withOpacity(isDarkMode ? 0.3 : 0.05),
                   blurRadius: 10,
                   offset: const Offset(0, 2),
                 ),
@@ -167,21 +198,21 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: Column(
                     children: [
                       // Illustration
-                     Container(
-  padding: const EdgeInsets.all(20),
-  decoration: BoxDecoration(
-    color: const Color(0xFFE31E24).withOpacity(0.1),
-    borderRadius: BorderRadius.circular(20),
-  ),
-  child: const Icon(
-    Icons.person,
-    size: 60,
-    color: Color(0xFFE31E24),
-  ),
-),
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE31E24).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Icon(
+                          Icons.person,
+                          size: 60,
+                          color: Color(0xFFE31E24),
+                        ),
+                      ),
 
                       const SizedBox(height: 24),
-                      const Row(
+                      Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(
@@ -189,50 +220,70 @@ class _LoginScreenState extends State<LoginScreen> {
                             style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.w600,
+                              color: isDarkMode ? Colors.white : Colors.black,
                             ),
                           ),
-                          Text('👋', style: TextStyle(fontSize: 20)),
+                          const Text('👋', style: TextStyle(fontSize: 20)),
                         ],
                       ),
                       const SizedBox(height: 4),
                       Text(
                         'Sign in to access your pension account',
-                        style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
+                        ),
                       ),
 
                       const SizedBox(height: 22),
 
-                      // Email field (NO HINT)
+                      // Email field
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
+                          Text(
                             'Email Address',
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w500,
-                              color: Colors.black87,
+                              color: isDarkMode ? Colors.white70 : Colors.black87,
                             ),
                           ),
                           const SizedBox(height: 8),
                           TextField(
                             controller: _emailController,
                             keyboardType: TextInputType.emailAddress,
+                            style: TextStyle(
+                              color: isDarkMode ? Colors.white : Colors.black,
+                            ),
                             decoration: InputDecoration(
-                              prefixIcon: const Icon(
+                              prefixIcon: Icon(
                                 Icons.email_outlined,
                                 size: 20,
+                                color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
                               ),
+                              filled: true,
+                              fillColor: isDarkMode 
+                                  ? const Color(0xFF2A2A2A) 
+                                  : Colors.grey[50],
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide.none,
                               ),
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide(color: Colors.grey[300]!),
+                                borderSide: BorderSide(
+                                  color: isDarkMode 
+                                      ? Colors.grey[800]! 
+                                      : Colors.grey[300]!,
+                                ),
                               ),
                               focusedBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Color(0xFFE31E24)),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFE31E24),
+                                  width: 2,
+                                ),
                               ),
                             ),
                           ),
@@ -241,26 +292,30 @@ class _LoginScreenState extends State<LoginScreen> {
 
                       const SizedBox(height: 15),
 
-                      // Password field (NO HINT)
+                      // Password field
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
+                          Text(
                             'Password',
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w500,
-                              color: Colors.black87,
+                              color: isDarkMode ? Colors.white70 : Colors.black87,
                             ),
                           ),
                           const SizedBox(height: 8),
                           TextField(
                             controller: _passwordController,
                             obscureText: _obscurePassword,
+                            style: TextStyle(
+                              color: isDarkMode ? Colors.white : Colors.black,
+                            ),
                             decoration: InputDecoration(
-                              prefixIcon: const Icon(
+                              prefixIcon: Icon(
                                 Icons.lock_outline,
                                 size: 20,
+                                color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
                               ),
                               suffixIcon: IconButton(
                                 icon: Icon(
@@ -268,6 +323,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                       ? Icons.visibility_outlined
                                       : Icons.visibility_off_outlined,
                                   size: 20,
+                                  color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
                                 ),
                                 onPressed: () {
                                   setState(() {
@@ -275,16 +331,28 @@ class _LoginScreenState extends State<LoginScreen> {
                                   });
                                 },
                               ),
+                              filled: true,
+                              fillColor: isDarkMode 
+                                  ? const Color(0xFF2A2A2A) 
+                                  : Colors.grey[50],
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide.none,
                               ),
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide(color: Colors.grey[300]!),
+                                borderSide: BorderSide(
+                                  color: isDarkMode 
+                                      ? Colors.grey[800]! 
+                                      : Colors.grey[300]!,
+                                ),
                               ),
                               focusedBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Color(0xFFE31E24)),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFE31E24),
+                                  width: 2,
+                                ),
                               ),
                             ),
                           ),
@@ -297,7 +365,14 @@ class _LoginScreenState extends State<LoginScreen> {
                       Align(
                         alignment: Alignment.centerRight,
                         child: TextButton(
-                          onPressed: () {},
+                          onPressed: () {
+                             Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const ForgotPasswordScreen(),
+                              ),
+                            );
+                          },
                           child: const Text(
                             'Forgot Password?',
                             style: TextStyle(
@@ -355,12 +430,18 @@ class _LoginScreenState extends State<LoginScreen> {
                             width: 56,
                             height: 56,
                             decoration: BoxDecoration(
-                              color: Colors.grey[200],
+                              color: isDarkMode 
+                                  ? Colors.grey[800] 
+                                  : Colors.grey[200],
                               shape: BoxShape.circle,
                             ),
                             child: IconButton(
                               onPressed: _isLoading ? null : _handleFingerprintLogin,
-                              icon: const Icon(Icons.fingerprint, size: 32),
+                              icon: Icon(
+                                Icons.fingerprint,
+                                size: 32,
+                                color: isDarkMode ? Colors.white70 : Colors.black54,
+                              ),
                             ),
                           ),
                         ],
@@ -371,19 +452,29 @@ class _LoginScreenState extends State<LoginScreen> {
                       // ----- or -----
                       Row(
                         children: [
-                          Expanded(child: Divider(color: Colors.grey[300])),
+                          Expanded(
+                            child: Divider(
+                              color: isDarkMode ? Colors.grey[700] : Colors.grey[300],
+                            ),
+                          ),
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 12),
                             child: Text(
                               'or',
                               style: TextStyle(
-                                color: Colors.grey[600],
+                                color: isDarkMode 
+                                    ? Colors.grey[500] 
+                                    : Colors.grey[600],
                                 fontSize: 13,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
                           ),
-                          Expanded(child: Divider(color: Colors.grey[300])),
+                          Expanded(
+                            child: Divider(
+                              color: isDarkMode ? Colors.grey[700] : Colors.grey[300],
+                            ),
+                          ),
                         ],
                       ),
 
@@ -403,7 +494,10 @@ class _LoginScreenState extends State<LoginScreen> {
                           },
                           style: OutlinedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 16),
-                            side: const BorderSide(color: Color(0xFFE31E24)),
+                            side: const BorderSide(
+                              color: Color(0xFFE31E24),
+                              width: 1.5,
+                            ),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(30),
                             ),
@@ -423,7 +517,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       // Footer
                       Text(
                         'Powered By Deft Technologies · KE. Contact Us',
-                        style: TextStyle(color: Colors.grey[600], fontSize: 11),
+                        style: TextStyle(
+                          color: isDarkMode ? Colors.grey[500] : Colors.grey[600],
+                          fontSize: 11,
+                        ),
                         textAlign: TextAlign.center,
                       ),
                     ],

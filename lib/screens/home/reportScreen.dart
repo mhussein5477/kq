@@ -4,12 +4,14 @@ import 'dart:typed_data';
 import 'package:expressive_loading_indicator/expressive_loading_indicator.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:kq/screens/auth/login.dart';
 import 'package:kq/services/secure_storage_service.dart';
 import 'package:kq/widgets/appBar.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:archive/archive.dart';
 import 'package:kq/services/api_service.dart';
+import 'package:kq/services/interceptor.dart';
 
 // Main Reports Screen
 class ReportsScreen extends StatelessWidget {
@@ -17,8 +19,11 @@ class ReportsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F8),
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: SafeArea(
         child: Column(
           children: [
@@ -32,12 +37,12 @@ class ReportsScreen extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Reports',
                       style: TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
-                        color: Colors.black,
+                        color: isDarkMode ? Colors.white : Colors.black,
                       ),
                     ),
                     const SizedBox(height: 20),
@@ -125,13 +130,16 @@ class ReportCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: theme.cardColor,
           borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
@@ -151,21 +159,27 @@ class ReportCard extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
-                      color: Colors.black,
+                      color: isDarkMode ? Colors.white : Colors.black,
                     ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     subtitle,
-                    style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
+                    ),
                   ),
                 ],
               ),
             ),
-            Icon(Icons.chevron_right, color: Colors.grey[400]),
+            Icon(
+              Icons.chevron_right,
+              color: isDarkMode ? Colors.grey[600] : Colors.grey[400],
+            ),
           ],
         ),
       ),
@@ -218,6 +232,8 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
   }
 
   Future<void> _selectDate(BuildContext context, bool isStartDate) async {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    
     final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: DateTime.now(),
@@ -226,10 +242,11 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: Color(0xFFE63946),
+            colorScheme: ColorScheme.light(
+              primary: const Color(0xFFE63946),
               onPrimary: Colors.white,
-              onSurface: Colors.black,
+              onSurface: isDarkMode ? Colors.white : Colors.black,
+              surface: isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
             ),
           ),
           child: child!,
@@ -340,12 +357,13 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
     });
 
     try {
+      print('🔐 Checking token validity...');
+      
+      await ApiTokenInterceptor.getValidTokenOrThrow();
+
       print('🔐 Fetching credentials...');
 
-      // Fetch access token from secure storage
       final accessToken = await SecureStorageService.getAccessToken();
-
-      // Fetch member details from secure storage
       final memberDetails = await SecureStorageService.getMemberDetails();
       final memberNo = memberDetails['memberNo'];
 
@@ -402,11 +420,14 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
 
       print('✅ Received base64 report, length: ${base64GzipReport.length}');
 
-      // Decode and decompress
       final pdfBytes = _decodeGzipReport(base64GzipReport);
-
-      // Save and share
       await _savePdfAndShare(pdfBytes, fileName);
+      
+    } on TokenExpiredException catch (e) {
+      print('❌ Token expired: $e');
+      if (mounted) {
+        _handleTokenExpired();
+      }
     } catch (e) {
       print('❌ Report generation failed: $e');
 
@@ -427,11 +448,67 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
       }
     }
   }
+ 
+  void _handleTokenExpired() {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
+        title: Row(
+          children: [
+            Icon(Icons.timer_off, color: Colors.orange[700]),
+            const SizedBox(width: 12),
+            Text(
+              'Session Expired',
+              style: TextStyle(
+                color: isDarkMode ? Colors.white : Colors.black87,
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'Your session has expired. Please login again to continue.',
+          style: TextStyle(
+            fontSize: 15,
+            color: isDarkMode ? Colors.white70 : Colors.black87,
+          ),
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () async {
+              await SecureStorageService.clearAuth();
+              
+              if (context.mounted) {
+                Navigator.of(context).pop();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const LoginScreen(),
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFE31E24),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Login Again'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F8),
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -442,11 +519,20 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
               child: Row(
                 children: [
                   IconButton(
-                    icon: const Icon(Icons.arrow_back),
+                    icon: Icon(
+                      Icons.arrow_back,
+                      color: isDarkMode ? Colors.white : Colors.black,
+                    ),
                     onPressed: () => Navigator.pop(context),
                   ),
                   const SizedBox(width: 8),
-                  const Text('Back', style: TextStyle(fontSize: 16)),
+                  Text(
+                    'Back',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: isDarkMode ? Colors.white : Colors.black,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -459,16 +545,19 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                   children: [
                     Text(
                       title,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.bold,
-                        color: Colors.black,
+                        color: isDarkMode ? Colors.white : Colors.black,
                       ),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       subtitle,
-                      style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
+                      ),
                     ),
                     const SizedBox(height: 32),
 
@@ -492,7 +581,9 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFE8F4FD),
+                        color: isDarkMode 
+                            ? const Color(0xFF1E3A4F) 
+                            : const Color(0xFFE8F4FD),
                         borderRadius: BorderRadius.circular(40),
                       ),
                       child: Row(
@@ -501,7 +592,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                           Icon(
                             Icons.info_outline,
                             size: 20,
-                            color: Colors.blue[700],
+                            color: isDarkMode ? Colors.blue[300] : Colors.blue[700],
                           ),
                           const SizedBox(width: 8),
                           Expanded(
@@ -513,7 +604,9 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                                   style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.w600,
-                                    color: Colors.grey[800],
+                                    color: isDarkMode 
+                                        ? Colors.blue[200] 
+                                        : Colors.grey[800],
                                   ),
                                 ),
                                 const SizedBox(height: 4),
@@ -523,7 +616,9 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                                       : 'Reports are generated from external system  and may take a few moments to process. The report will be compressed and ready for download.',
                                   style: TextStyle(
                                     fontSize: 13,
-                                    color: Colors.grey[700],
+                                    color: isDarkMode 
+                                        ? Colors.blue[200] 
+                                        : Colors.grey[700],
                                     height: 1.4,
                                   ),
                                 ),
@@ -618,6 +713,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
     required DateTime? date,
     required VoidCallback onTap,
   }) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     final dateFormat = DateFormat('dd/MM/yyyy');
 
     return Column(
@@ -625,10 +721,10 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
       children: [
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w500,
-            color: Colors.black87,
+            color: isDarkMode ? Colors.white70 : Colors.black87,
           ),
         ),
         const SizedBox(height: 8),
@@ -637,8 +733,10 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             decoration: BoxDecoration(
-              color: Colors.white,
-              border: Border.all(color: Colors.grey[300]!),
+              color: isDarkMode ? const Color(0xFF2A2A2A) : Colors.white,
+              border: Border.all(
+                color: isDarkMode ? Colors.grey[800]! : Colors.grey[300]!,
+              ),
               borderRadius: BorderRadius.circular(40),
             ),
             child: Row(
@@ -648,11 +746,17 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                     date != null ? dateFormat.format(date) : 'Select date',
                     style: TextStyle(
                       fontSize: 16,
-                      color: date != null ? Colors.black : Colors.grey[500],
+                      color: date != null 
+                          ? (isDarkMode ? Colors.white : Colors.black)
+                          : Colors.grey[500],
                     ),
                   ),
                 ),
-                Icon(Icons.calendar_today, size: 20, color: Colors.grey[600]),
+                Icon(
+                  Icons.calendar_today,
+                  size: 20,
+                  color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
+                ),
               ],
             ),
           ),

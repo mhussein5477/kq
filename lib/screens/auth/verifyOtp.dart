@@ -109,8 +109,11 @@ class _OtpVerificationState extends State<OtpVerification> {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: SafeArea(
         child: SingleChildScrollView(
           child: Padding(
@@ -123,8 +126,10 @@ class _OtpVerificationState extends State<OtpVerification> {
                 Container(
                   width: 80,
                   height: 80,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFE8E5F5),
+                  decoration: BoxDecoration(
+                    color: isDarkMode 
+                        ? const Color(0xFF2A2563) 
+                        : const Color(0xFFE8E5F5),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
@@ -137,12 +142,12 @@ class _OtpVerificationState extends State<OtpVerification> {
                 const SizedBox(height: 32),
 
                 // Title
-                const Text(
+                Text(
                   'Enter Verification Code',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w600,
-                    color: Colors.black87,
+                    color: isDarkMode ? Colors.white : Colors.black87,
                   ),
                 ),
 
@@ -151,13 +156,16 @@ class _OtpVerificationState extends State<OtpVerification> {
                 // Subtitle
                 Text(
                   "We've sent a 4-digit code to your email",
-                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
+                  ),
                   textAlign: TextAlign.center,
                 ),
 
                 const SizedBox(height: 40),
 
-                // OTP Input Boxes (4 fields)
+                // OTP Input Boxes (4 fields) - Keep white background
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: List.generate(4, (index) {
@@ -178,6 +186,8 @@ class _OtpVerificationState extends State<OtpVerification> {
                             color: Colors.black87,
                           ),
                           decoration: InputDecoration(
+                            filled: true,
+                            fillColor: Colors.white,
                             counterText: '',
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
@@ -390,7 +400,7 @@ class _OtpVerificationState extends State<OtpVerification> {
                                 height: 30,
                                 width: 30,
                                 child: ExpressiveLoadingIndicator(
-                                  color: Colors.red,
+                                  color: Colors.white,
                                 ),
                               ),
                             ),
@@ -411,14 +421,16 @@ class _OtpVerificationState extends State<OtpVerification> {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFE8F4FD),
+                    color: isDarkMode 
+                        ? const Color(0xFF1E3A4F) 
+                        : const Color(0xFFE8F4FD),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
                     "Didn't receive the code? Check your spam folder or try a different method.",
                     style: TextStyle(
                       fontSize: 13,
-                      color: Colors.grey[700],
+                      color: isDarkMode ? Colors.blue[200] : Colors.grey[700],
                       height: 1.4,
                     ),
                     textAlign: TextAlign.center,
@@ -430,7 +442,10 @@ class _OtpVerificationState extends State<OtpVerification> {
                 // Footer
                 Text(
                   'Powered By Deft Technologies · KE. Contact Us',
-                  style: TextStyle(color: Colors.grey[600], fontSize: 11),
+                  style: TextStyle(
+                    color: isDarkMode ? Colors.grey[500] : Colors.grey[600],
+                    fontSize: 11,
+                  ),
                   textAlign: TextAlign.center,
                 ),
               ],

@@ -5,6 +5,8 @@ class AuthBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    
     return Padding(
       padding: const EdgeInsets.all(20),
       child: Row(
@@ -27,18 +29,21 @@ class AuthBar extends StatelessWidget {
           const SizedBox(width: 12),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: const [
+            children: [
               Text(
                 'Kenya Airways',
                 style: TextStyle(
-                  color: Colors.black,
+                  color: isDarkMode ? Colors.white : Colors.black,
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
                 ),
               ),
               Text(
                 'Pride of Africa',
-                style: TextStyle(color: Colors.black87, fontSize: 12),
+                style: TextStyle(
+                  color: isDarkMode ? Colors.white70 : Colors.black87,
+                  fontSize: 12,
+                ),
               ),
             ],
           ),

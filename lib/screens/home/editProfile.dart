@@ -1,10 +1,26 @@
 import 'dart:convert';
-
 import 'package:expressive_loading_indicator/expressive_loading_indicator.dart';
 import 'package:flutter/material.dart';
 import 'package:kq/services/api_service.dart';
 import 'package:kq/services/secure_storage_service.dart';
 import 'package:kq/services/upload_service.dart';
+
+// ============================================================================
+// COLORS & CONSTANTS
+// ============================================================================
+
+class AppColors {
+  static const primary = Color(0xFFE31E24);
+  static const success = Color(0xFF10B981);
+  static const surfaceDarker = Color(0xFF2A2A2A);
+  static const textPrimary = Color(0xFF1A1A1A);
+  static const textSecondary = Color(0xFF666666);
+  static const backgroundLight = Color(0xFFF5F5F8);
+}
+
+// ============================================================================
+// BENEFICIARY DATA MODEL
+// ============================================================================
 
 class Beneficiary {
   String id;
@@ -49,6 +65,10 @@ class Beneficiary {
   }
 }
 
+// ============================================================================
+// EDIT PROFILE SCREEN
+// ============================================================================
+
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
 
@@ -71,12 +91,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   String? _changeRequestId;
   Map<String, dynamic>? _memberData;
 
-  // Upload state
   UploadFile? _profilePicture;
   UploadFile? _idDocument;
   UploadFile? _kraDocument;
 
-  // Beneficiaries list
   List<Beneficiary> _beneficiaries = [];
 
   @override
@@ -145,10 +163,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       if (error != null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(error),
-              backgroundColor: Colors.red,
-            ),
+            SnackBar(content: Text(error), backgroundColor: Colors.red),
           );
         }
         return;
@@ -178,10 +193,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       if (error != null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(error),
-              backgroundColor: Colors.red,
-            ),
+            SnackBar(content: Text(error), backgroundColor: Colors.red),
           );
         }
         return;
@@ -211,10 +223,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       if (error != null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(error),
-              backgroundColor: Colors.red,
-            ),
+            SnackBar(content: Text(error), backgroundColor: Colors.red),
           );
         }
         return;
@@ -303,120 +312,145 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
   }
 
-Future<void> _saveChanges() async {
-  if (!_validateDocumentRequirements()) return;
+  Future<void> _saveChanges() async {
+    if (!_validateDocumentRequirements()) return;
 
-  setState(() => _isSaving = true);
+    setState(() => _isSaving = true);
 
-  try {
-    final accessToken = await SecureStorageService.getAccessToken();
-    if (accessToken == null) throw Exception('No access token found');
+    try {
+      final accessToken = await SecureStorageService.getAccessToken();
+      if (accessToken == null) throw Exception('No access token found');
 
-    // STEP 1: Initiate change request if none exists
-    if (_changeRequestId == null) {
+      debugPrint('🚀 Creating new change request for profile changes...');
       await _initiateChangeRequest();
-    }
-    if (_changeRequestId == null || _changeRequestNo == null) {
-      throw Exception('Failed to get change request ID or number');
-    }
 
-    // STEP 2: Fetch beneficiaries from existing change request
-    final crDetails = await ApiService.getChangeRequestDetails(
-      accessToken: accessToken,
-      changeRequestNo: _changeRequestNo!,
-    );
+      if (_changeRequestId == null || _changeRequestNo == null) {
+        throw Exception('Failed to get change request ID or number');
+      }
 
-    // Extract current beneficiaries from the change request
-    final crValues = crDetails['values']?[0]['values'] as List<dynamic>?;
+      debugPrint('✅ Change request created: $_changeRequestNo (ID: $_changeRequestId)');
 
-    if (crValues == null || crValues.isEmpty) {
-      throw Exception('No beneficiaries found in change request');
-    }
-
-    _beneficiaries = crValues.map((b) {
-      return Beneficiary(
-        id: b['id'],
-        firstName: b['firstName'] ?? '',
-        otherNames: b['otherName'] ?? '',
-        surName: b['lastName'] ?? '',
-        relationship: b['relationship'] ?? '',
-        phoneNo: b['phoneNo'] ?? '',
-        emailAddress: b['emailAddress'] ?? '',
-        address: b['address'] ?? '',
-        percentageBenefit: (b['percentageBenefit'] ?? 0).toDouble(),
-        isPrimary: b['isPrimary'] ?? false,
-      );
-    }).toList();
-
-    // STEP 3: Update each beneficiary
-    for (final beneficiary in _beneficiaries) {
-      final payload = beneficiary.toMap();
-      payload['changeRequestNo'] = _changeRequestNo;
-
-      debugPrint('📝 PATCH BENEFICIARY PAYLOAD: ${jsonEncode(payload)}');
-
-      final success = await ApiService.updateBeneficiaryChanges(
+      final crDetails = await ApiService.getChangeRequestDetails(
         accessToken: accessToken,
-        beneficiary: payload,
+        changeRequestNo: _changeRequestNo!,
       );
 
-      if (!success) {
-        throw Exception('Failed to update beneficiary ${beneficiary.fullName}');
+      debugPrint('🔍 Change request details: ${jsonEncode(crDetails)}');
+
+      if (crDetails['id'] == null) {
+        throw Exception('No member change record found in change request');
+      }
+
+      final fullName = _fullNameController.text.trim();
+      final nameParts = fullName.split(' ');
+
+      String firstName = '';
+      String otherName = '';
+      String lastName = '';
+
+      if (nameParts.length >= 3) {
+        firstName = nameParts[0];
+        lastName = nameParts.last;
+        otherName = nameParts.sublist(1, nameParts.length - 1).join(' ');
+      } else if (nameParts.length == 2) {
+        firstName = nameParts[0];
+        lastName = nameParts[1];
+      } else if (nameParts.length == 1) {
+        firstName = nameParts[0];
+      }
+
+      final updates = {
+        'firstName': firstName,
+        'otherName': otherName,
+        'lastName': lastName,
+        'idNo': _idNumberController.text.trim(),
+        'kraPin': _kraPinController.text.trim(),
+        'emailAddress': _emailController.text.trim(),
+        'phoneNo': _phoneController.text.trim(),
+        'address': _postalAddressController.text.trim(),
+      };
+
+      debugPrint('📝 PATCH MEMBER CHANGES PAYLOAD: ${jsonEncode(updates)}');
+
+      await ApiService.updateMemberChanges(
+        accessToken: accessToken,
+        changeRequestId: _changeRequestId!,
+        changes: updates,
+      );
+
+      debugPrint('✅ Member changes updated successfully');
+
+      if (_profilePicture != null) {
+        debugPrint('📸 Uploading profile picture...');
+        final base64Picture = base64Encode(_profilePicture!.fileBytes);
+        await ApiService.uploadMemberPicture(
+          accessToken: accessToken,
+          changeRequestId: _changeRequestId!,
+          fileName: _profilePicture!.fileName,
+          pictureBase64: base64Picture,
+        );
+        debugPrint('✅ Profile picture uploaded');
+      }
+
+      if (_idDocument != null) {
+        debugPrint('⚠️ ID document selected but upload endpoint not available');
+      }
+      if (_kraDocument != null) {
+        debugPrint('⚠️ KRA document selected but upload endpoint not available');
+      }
+
+      debugPrint('✅ Submitting change request for approval...');
+      final submitted = await ApiService.submitMemberChanges(
+        accessToken: accessToken,
+        changeRequestId: _changeRequestId!,
+      );
+
+      setState(() => _isSaving = false);
+
+      if (submitted && mounted) {
+        Navigator.pop(context, true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Profile changes submitted successfully',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Change Request No: $_changeRequestNo',
+                  style: const TextStyle(fontSize: 12),
+                ),
+                const SizedBox(height: 2),
+                const Text(
+                  'Your changes will be reviewed and applied after approval.',
+                  style: TextStyle(fontSize: 11),
+                ),
+              ],
+            ),
+            backgroundColor: AppColors.primary,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      } else {
+        throw Exception('Submission failed');
+      }
+    } catch (e) {
+      debugPrint('❌ Error saving profile changes: $e');
+      setState(() => _isSaving = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to save changes: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
-
-    // STEP 4: Submit change request
-    final submitted = await ApiService.submitMemberChanges(
-      accessToken: accessToken,
-      changeRequestId: _changeRequestId!,
-    );
-
-    setState(() => _isSaving = false);
-
-    if (submitted && mounted) {
-      Navigator.pop(context, true);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Beneficiary changes submitted successfully',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Change Request No: $_changeRequestNo',
-                style: const TextStyle(fontSize: 12),
-              ),
-              const SizedBox(height: 2),
-              const Text(
-                'Your changes will be reviewed and applied after approval.',
-                style: TextStyle(fontSize: 11),
-              ),
-            ],
-          ),
-          backgroundColor: const Color(0xFFE31E24),
-          duration: const Duration(seconds: 5),
-        ),
-      );
-    } else {
-      throw Exception('Submission failed');
-    }
-  } catch (e) {
-    debugPrint('❌ Error saving beneficiaries: $e');
-    setState(() => _isSaving = false);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to save changes: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
   }
-}
 
   @override
   void dispose() {
@@ -431,23 +465,32 @@ Future<void> _saveChanges() async {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F8),
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: theme.appBarTheme.backgroundColor,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          icon: Icon(Icons.arrow_back,
+              color: isDarkMode ? Colors.white : Colors.black),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text(
+        title: Text(
           'Back',
-          style: TextStyle(color: Colors.black, fontSize: 16),
+          style: TextStyle(
+            color: isDarkMode ? Colors.white : Colors.black,
+            fontSize: 16,
+          ),
         ),
       ),
       body: _isLoading
-          ? const Center(
-              child: ExpressiveLoadingIndicator(color: Colors.red),
+          ? Center(
+              child: ExpressiveLoadingIndicator(
+                color: isDarkMode ? Colors.red[300] : Colors.red,
+              ),
             )
           : SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
@@ -458,148 +501,68 @@ Future<void> _saveChanges() async {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
+                      Text(
                         'Edit Profile',
                         style: TextStyle(
                           fontSize: 28,
                           fontWeight: FontWeight.bold,
-                          color: Colors.black,
+                          color: isDarkMode ? Colors.white : Colors.black,
                         ),
                       ),
                       const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE3F2FD),
-                          borderRadius: BorderRadius.circular(40),
-                        ),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Note: ',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF1976D2),
-                              ),
-                            ),
-                            Expanded(
-                              child: Text(
-                                'Changes to ID Number and KRA PIN require document upload for verification. All changes will be submitted for approval.',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey[700],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                      _buildInfoContainer(isDarkMode),
                       const SizedBox(height: 24),
-                      Center(
-                        child: Column(
-                          children: [
-                            Stack(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: const Color(0xFFE31E24),
-                                      width: 3,
-                                    ),
-                                  ),
-                                  child: CircleAvatar(
-                                    radius: 50,
-                                    backgroundColor: Colors.grey[200],
-                                    backgroundImage: _profilePicture != null
-                                        ? MemoryImage(_profilePicture!.fileBytes)
-                                        : null,
-                                    child: _profilePicture == null
-                                        ? const Icon(
-                                            Icons.person,
-                                            size: 50,
-                                            color: Colors.grey,
-                                          )
-                                        : null,
-                                  ),
-                                ),
-                                Positioned(
-                                  bottom: 0,
-                                  right: 0,
-                                  child: GestureDetector(
-                                    onTap: _pickProfilePicture,
-                                    child: Container(
-                                      padding: const EdgeInsets.all(8),
-                                      decoration: const BoxDecoration(
-                                        color: Color(0xFFE31E24),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: const Icon(
-                                        Icons.camera_alt,
-                                        color: Colors.white,
-                                        size: 20,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            if (_profilePicture != null) ...[
-                              const SizedBox(height: 8),
-                              Text(
-                                _profilePicture!.fileName,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                              Text(
-                                '${_profilePicture!.fileSizeInMB.toStringAsFixed(2)} MB',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.grey[500],
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
+                      _buildProfilePictureSection(isDarkMode),
                       const SizedBox(height: 24),
-                      _buildTextField('Full Name', _fullNameController),
-                      _buildTextField('ID Number', _idNumberController),
+                      _buildTextField(
+                        'Full Name',
+                        _fullNameController,
+                        isDarkMode,
+                      ),
+                      _buildTextField(
+                        'ID Number',
+                        _idNumberController,
+                        isDarkMode,
+                      ),
                       _buildUploadButton(
                         'Upload ID Card',
                         icon: Icons.upload_file,
                         uploaded: _idDocument != null,
                         fileName: _idDocument?.fileName,
                         onPressed: _pickIdDocument,
+                        isDarkMode: isDarkMode,
                       ),
                       const SizedBox(height: 16),
-                      _buildTextField('KRA PIN', _kraPinController),
+                      _buildTextField(
+                        'KRA PIN',
+                        _kraPinController,
+                        isDarkMode,
+                      ),
                       _buildUploadButton(
                         'Upload KRA Certificate',
                         icon: Icons.upload_file,
                         uploaded: _kraDocument != null,
                         fileName: _kraDocument?.fileName,
                         onPressed: _pickKraDocument,
+                        isDarkMode: isDarkMode,
                       ),
                       const SizedBox(height: 16),
                       _buildTextField(
                         'Email',
                         _emailController,
+                        isDarkMode,
                         keyboardType: TextInputType.emailAddress,
                       ),
                       _buildTextField(
                         'Phone Number',
                         _phoneController,
+                        isDarkMode,
                         keyboardType: TextInputType.phone,
                       ),
                       _buildTextField(
                         'Postal Address',
                         _postalAddressController,
+                        isDarkMode,
                         maxLines: 2,
                       ),
                       const SizedBox(height: 32),
@@ -608,7 +571,7 @@ Future<void> _saveChanges() async {
                         child: ElevatedButton(
                           onPressed: _isSaving ? null : _saveChanges,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFE31E24),
+                            backgroundColor: AppColors.primary,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             shape: RoundedRectangleBorder(
@@ -641,9 +604,117 @@ Future<void> _saveChanges() async {
     );
   }
 
+  Widget _buildInfoContainer(bool isDarkMode) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDarkMode
+            ? Colors.blue[900]!.withOpacity(0.3)
+            : const Color(0xFFE3F2FD),
+        borderRadius: BorderRadius.circular(40),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Note: ',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: isDarkMode ? Colors.blue[300] : const Color(0xFF1976D2),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              'Changes to ID Number and KRA PIN require document upload for verification. All changes will be submitted for approval.',
+              style: TextStyle(
+                fontSize: 12,
+                color: isDarkMode ? Colors.blue[200] : Colors.grey[700],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfilePictureSection(bool isDarkMode) {
+    return Center(
+      child: Column(
+        children: [
+          Stack(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: AppColors.primary,
+                    width: 3,
+                  ),
+                ),
+                child: CircleAvatar(
+                  radius: 50,
+                  backgroundColor: isDarkMode ? Colors.grey[800] : Colors.grey[200],
+                  backgroundImage: _profilePicture != null
+                      ? MemoryImage(_profilePicture!.fileBytes)
+                      : null,
+                  child: _profilePicture == null
+                      ? Icon(
+                          Icons.person,
+                          size: 50,
+                          color: isDarkMode ? Colors.grey[500] : Colors.grey,
+                        )
+                      : null,
+                ),
+              ),
+              Positioned(
+                bottom: 0,
+                right: 0,
+                child: GestureDetector(
+                  onTap: _pickProfilePicture,
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: const BoxDecoration(
+                      color: AppColors.primary,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.camera_alt,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (_profilePicture != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _profilePicture!.fileName,
+              style: TextStyle(
+                fontSize: 12,
+                color: isDarkMode ? Colors.white70 : Colors.grey[600],
+              ),
+            ),
+            Text(
+              '${_profilePicture!.fileSizeInMB.toStringAsFixed(2)} MB',
+              style: TextStyle(
+                fontSize: 11,
+                color: isDarkMode ? Colors.white54 : Colors.grey[500],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildTextField(
     String label,
-    TextEditingController controller, {
+    TextEditingController controller,
+    bool isDarkMode, {
     TextInputType? keyboardType,
     int maxLines = 1,
   }) {
@@ -654,10 +725,10 @@ Future<void> _saveChanges() async {
         children: [
           Text(
             label,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w500,
-              color: Colors.black87,
+              color: isDarkMode ? Colors.white70 : Colors.black87,
             ),
           ),
           const SizedBox(height: 8),
@@ -665,9 +736,12 @@ Future<void> _saveChanges() async {
             controller: controller,
             keyboardType: keyboardType,
             maxLines: maxLines,
+            style: TextStyle(
+              color: isDarkMode ? Colors.white : Colors.black,
+            ),
             decoration: InputDecoration(
               filled: true,
-              fillColor: Colors.white,
+              fillColor: isDarkMode ? AppColors.surfaceDarker : Colors.white,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
                 borderSide: BorderSide(color: Colors.grey[300]!),
@@ -678,7 +752,7 @@ Future<void> _saveChanges() async {
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: Color(0xFFE31E24)),
+                borderSide: const BorderSide(color: AppColors.primary),
               ),
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 16,
@@ -703,6 +777,7 @@ Future<void> _saveChanges() async {
     required bool uploaded,
     String? fileName,
     required VoidCallback onPressed,
+    required bool isDarkMode,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -712,9 +787,9 @@ Future<void> _saveChanges() async {
           icon: Icon(icon, size: 18),
           label: Text(uploaded ? 'Change Document' : label),
           style: OutlinedButton.styleFrom(
-            foregroundColor: uploaded ? Colors.green : const Color(0xFFE31E24),
+            foregroundColor: uploaded ? AppColors.success : AppColors.primary,
             side: BorderSide(
-              color: uploaded ? Colors.green : const Color(0xFFE31E24),
+              color: uploaded ? AppColors.success : AppColors.primary,
             ),
             padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
             shape: RoundedRectangleBorder(
@@ -726,12 +801,15 @@ Future<void> _saveChanges() async {
           const SizedBox(height: 4),
           Row(
             children: [
-              const Icon(Icons.check_circle, color: Colors.green, size: 16),
+              const Icon(Icons.check_circle, color: AppColors.success, size: 16),
               const SizedBox(width: 4),
               Expanded(
                 child: Text(
                   fileName,
-                  style: const TextStyle(fontSize: 12, color: Colors.green),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.success,
+                  ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),

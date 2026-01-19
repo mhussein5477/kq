@@ -1,15 +1,215 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:kq/services/pdfParserService.dart';
 import 'package:kq/widgets/appBar.dart';
+import 'package:kq/services/api_service.dart';
+import 'package:kq/services/secure_storage_service.dart';
+import 'package:kq/services/interceptor.dart'; 
+import 'package:expressive_loading_indicator/expressive_loading_indicator.dart';
+import 'package:intl/intl.dart';
 
-// Trends Screen
-
-class TrendsScreen extends StatelessWidget {
+class TrendsScreen extends StatefulWidget {
   const TrendsScreen({super.key});
 
   @override
+  State<TrendsScreen> createState() => _TrendsScreenState();
+}
+
+class _TrendsScreenState extends State<TrendsScreen> {
+  bool _isLoadingData = true;
+  bool _isLoadingContributions = true;
+  String? _loadError;
+  Map<String, dynamic>? _memberData;
+
+  // Contribution data from PDF parser
+  double _totalContributions = 0.0;
+  double _employerContributions = 0.0;
+  double _memberContributions = 0.0;
+  double _interestEarned = 0.0;
+  double _avcContributions = 0.0;
+  double _prmfContributions = 0.0;
+  double _nssfContributions = 0.0;
+  double _yearlyContributions = 0.0;
+  int _contributionCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTrendsData();
+  }
+
+  Future<void> _loadTrendsData() async {
+    try {
+      await ApiTokenInterceptor.getValidTokenOrThrow();
+
+      final accessToken = await SecureStorageService.getAccessToken();
+      final memberDetails = await SecureStorageService.getMemberDetails();
+      final memberNo = memberDetails['memberNo'];
+
+      if (accessToken == null || memberNo == null || memberNo.isEmpty) {
+        throw Exception('Authentication token or member number missing');
+      }
+
+      final response = await ApiService.fetchMemberDetails(
+        accessToken: accessToken,
+        memberNo: memberNo,
+      );
+
+      final decodedValue = jsonDecode(response['value']);
+      final values = decodedValue['values'] as List;
+      
+      if (values.isEmpty || values[0].isEmpty) {
+        throw Exception('No member data found');
+      }
+      
+      final member = values[0][0] as Map<String, dynamic>;
+
+      setState(() {
+        _memberData = member;
+        _isLoadingData = false;
+      });
+
+      _loadContributionDataFromPdf(accessToken, memberNo);
+    } catch (e) {
+      print('❌ TRENDS - ERROR: $e');
+      setState(() {
+        _loadError = e.toString().replaceAll('Exception: ', '');
+        _isLoadingData = false;
+        _isLoadingContributions = false;
+      });
+    }
+  }
+
+  Future<void> _loadContributionDataFromPdf(String accessToken, String memberNo) async {
+    try {
+      print('📊 TRENDS - Loading contribution data from PDF...');
+
+      final dateFormat = DateFormat('yyyy-MM-dd');
+      final startDate = '2020-01-01';
+      final endDate = dateFormat.format(DateTime.now());
+
+      final memberStatementPdf = await ApiService.generateMemberStatement(
+        accessToken: accessToken,
+        memberNo: memberNo,
+        startDate: startDate,
+        endDate: endDate,
+      );
+
+      final contributionData = PdfParserService.parseMemberStatementPdf(
+        memberStatementPdf,
+      );
+
+      final contributionStatementPdf = await ApiService.generateContributionStatement(
+        accessToken: accessToken,
+        memberNo: memberNo,
+      );
+
+      final yearlyData = PdfParserService.parseContributionStatementPdf(
+        contributionStatementPdf,
+      );
+
+      if (mounted) {
+        setState(() {
+          _employerContributions = contributionData['employerContributions'] ?? 0.0;
+          _memberContributions = contributionData['memberContributions'] ?? 0.0;
+          _interestEarned = contributionData['interestEarned'] ?? 0.0;
+          _avcContributions = contributionData['avcContributions'] ?? 0.0;
+          _prmfContributions = contributionData['prmfContributions'] ?? 0.0;
+          _nssfContributions = contributionData['nssfContributions'] ?? 0.0;
+          _totalContributions = contributionData['totalContributions'] ?? 0.0;
+          _yearlyContributions = yearlyData['grandTotal'] ?? 0.0;
+          _contributionCount = yearlyData['contributionCount'] ?? 0;
+          _isLoadingContributions = false;
+        });
+      }
+
+      print('✅ TRENDS - Contribution data loaded successfully!');
+    } catch (e) {
+      print('⚠️ TRENDS - Could not load contribution data: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingContributions = false;
+        });
+      }
+    }
+  }
+
+  String _formatCurrency(double amount) {
+    return 'KES ${amount.toStringAsFixed(0).replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+      (Match m) => '${m[1]},',
+    )}';
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    
+    if (_isLoadingData) {
+      return Scaffold(
+        backgroundColor: theme.scaffoldBackgroundColor,
+        body: const Center(
+          child: SizedBox(
+            height: 70,
+            width: 70,
+            child: ExpressiveLoadingIndicator(color: Colors.red),
+          ),
+        ),
+      );
+    }
+
+    if (_loadError != null) {
+      return Scaffold(
+        backgroundColor: theme.scaffoldBackgroundColor,
+        body: SafeArea(
+          child: Column(
+            children: [
+              CustomTopBar(),
+              Expanded(
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.error_outline, size: 64, color: Colors.red),
+                      const SizedBox(height: 16),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 32),
+                        child: Text(
+                          _loadError!,
+                          style: const TextStyle(color: Colors.red),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      ElevatedButton(
+                        onPressed: () {
+                          setState(() {
+                            _isLoadingData = true;
+                            _isLoadingContributions = true;
+                            _loadError = null;
+                          });
+                          _loadTrendsData();
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFE31E24),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                        ),
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F8),
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: SafeArea(
         child: Column(
           children: [
@@ -17,25 +217,62 @@ class TrendsScreen extends StatelessWidget {
             Expanded(
               child: SingleChildScrollView(
                 physics: const BouncingScrollPhysics(),
-
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Trends',
+                    Text(
+                      'Pension Trends',
                       style: TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
-                        color: Colors.black,
+                        color: isDarkMode ? Colors.white : Colors.black,
                       ),
                     ),
                     const SizedBox(height: 20),
-                    _buildStatsGrid(),
+                    
+                    if (_isLoadingContributions)
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: isDarkMode 
+                              ? const Color(0xFF1E3A4F) 
+                              : Colors.blue[50],
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: isDarkMode ? Colors.blue[300] : Colors.blue[900],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                'Loading pension data...',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: isDarkMode ? Colors.blue[200] : Colors.blue[900],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    
+                    if (_isLoadingContributions) const SizedBox(height: 20),
+                    
+                    _buildQuickStatsGrid(),
                     const SizedBox(height: 24),
-                    _buildTotalContributionsCard(),
+                    _buildContributionCompositionCard(),
                     const SizedBox(height: 24),
-                    _buildYearlyContributionsCard(),
+                    _buildDetailedBreakdownCard(),
+                    const SizedBox(height: 24),
+                    _buildThisYearCard(),
                   ],
                 ),
               ),
@@ -46,7 +283,7 @@ class TrendsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildStatsGrid() {
+  Widget _buildQuickStatsGrid() {
     return GridView.count(
       crossAxisCount: 2,
       shrinkWrap: true,
@@ -56,28 +293,28 @@ class TrendsScreen extends StatelessWidget {
       childAspectRatio: 1.5,
       children: [
         _buildStatCard(
-          'Total Contributions',
-          'KES 450,000',
+          'Total Balance',
+          _formatCurrency(_totalContributions),
           Icons.account_balance_wallet_outlined,
-          const Color(0xFF6B7FED),
+          const Color(0xFFE31E24),
+        ),
+        _buildStatCard(
+          'My Contributions',
+          _formatCurrency(_memberContributions),
+          Icons.person_outline,
+          const Color(0xFF9C27B0),
         ),
         _buildStatCard(
           'Employer Contributions',
-          'KES 115,000',
+          _formatCurrency(_employerContributions),
           Icons.business_outlined,
           const Color(0xFF4CAF50),
         ),
         _buildStatCard(
-          'My Contributions',
-          'KES 75,000',
-          Icons.person_outline,
-          const Color(0xFFFF6B6B),
-        ),
-        _buildStatCard(
-          'Intrest',
-          'KES 30,000',
+          'Interest',
+          _formatCurrency(_interestEarned),
           Icons.trending_up,
-          const Color(0xFF9C27B0),
+          const Color(0xFFFF9800),
         ),
       ],
     );
@@ -89,10 +326,13 @@ class TrendsScreen extends StatelessWidget {
     IconData icon,
     Color iconColor,
   ) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.cardColor,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -107,7 +347,7 @@ class TrendsScreen extends StatelessWidget {
                   title,
                   style: TextStyle(
                     fontSize: 12,
-                    color: Colors.grey[600],
+                    color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -124,10 +364,10 @@ class TrendsScreen extends StatelessWidget {
           ),
           Text(
             amount,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              color: Colors.black,
+              color: isDarkMode ? Colors.white : Colors.black,
             ),
           ),
         ],
@@ -135,68 +375,41 @@ class TrendsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildTotalContributionsCard() {
+  Widget _buildContributionCompositionCard() {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    
+    // Calculate percentages
+    final total = _totalContributions > 0 ? _totalContributions : 1;
+    final employerPercentage = (_employerContributions / total) * 100;
+    final employeePercentage = (_memberContributions / total) * 100;
+    final interestPercentage = (_interestEarned / total) * 100;
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.cardColor,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Total Contributions',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black87,
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.grey[100],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    const Text(
-                      'All',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Icon(
-                      Icons.keyboard_arrow_down,
-                      size: 16,
-                      color: Colors.grey[700],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'KES 450,000',
+          Text(
+            'Balance Composition',
             style: TextStyle(
-              fontSize: 32,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF6B7FED),
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: isDarkMode ? Colors.white : Colors.black87,
             ),
           ),
-          const Text(
-            '6 Contributions',
-            style: TextStyle(fontSize: 14, color: Colors.grey),
+          const SizedBox(height: 8),
+          Text(
+            _formatCurrency(_totalContributions),
+            style: const TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFFE31E24),
+            ),
           ),
           const SizedBox(height: 24),
           Row(
@@ -208,7 +421,13 @@ class TrendsScreen extends StatelessWidget {
                     SizedBox(
                       height: 150,
                       width: 150,
-                      child: CustomPaint(painter: DonutChartPainter()),
+                      child: CustomPaint(
+                        painter: DonutChartPainter(
+                          employerPercentage: employerPercentage,
+                          employeePercentage: employeePercentage,
+                          interestPercentage: interestPercentage,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -219,18 +438,22 @@ class TrendsScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildLegendItem(
-                      'Kenya Airways',
-                      const Color(0xFF6B7FED),
-                      '50%',
+                      'Employer',
+                      const Color(0xFF4CAF50),
+                      '${employerPercentage.toStringAsFixed(1)}%',
                     ),
                     const SizedBox(height: 12),
                     _buildLegendItem(
-                      'United Nations',
-                      const Color(0xFFFF6B9D),
-                      '15%',
+                      'Employee',
+                      const Color(0xFF9C27B0),
+                      '${employeePercentage.toStringAsFixed(1)}%',
                     ),
                     const SizedBox(height: 12),
-                    _buildLegendItem('KRA', const Color(0xFFB24CFF), '35%'),
+                    _buildLegendItem(
+                      'Interest',
+                      const Color(0xFFFF9800),
+                      '${interestPercentage.toStringAsFixed(1)}%',
+                    ),
                   ],
                 ),
               ),
@@ -242,6 +465,8 @@ class TrendsScreen extends StatelessWidget {
   }
 
   Widget _buildLegendItem(String label, Color color, String percentage) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    
     return Row(
       children: [
         Container(
@@ -253,18 +478,153 @@ class TrendsScreen extends StatelessWidget {
         Expanded(
           child: Text(
             label,
-            style: const TextStyle(fontSize: 13, color: Colors.black87),
+            style: TextStyle(
+              fontSize: 13,
+              color: isDarkMode ? Colors.white70 : Colors.black87,
+            ),
+          ),
+        ),
+        Text(
+          percentage,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: isDarkMode ? Colors.white : Colors.black87,
           ),
         ),
       ],
     );
   }
 
-  Widget _buildYearlyContributionsCard() {
+  Widget _buildDetailedBreakdownCard() {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Contribution Breakdown',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: isDarkMode ? Colors.white : Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 16),
+          
+          _buildBreakdownItem(
+            'Employer Contributions',
+            _formatCurrency(_employerContributions),
+            Icons.business_center_outlined,
+            const Color(0xFF4CAF50),
+          ),
+          Divider(
+            height: 24,
+            color: isDarkMode ? Colors.grey[800] : Colors.grey[300],
+          ),
+          _buildBreakdownItem(
+            'Member Contributions',
+            _formatCurrency(_memberContributions),
+            Icons.account_circle_outlined,
+            const Color(0xFF9C27B0),
+          ),
+          Divider(
+            height: 24,
+            color: isDarkMode ? Colors.grey[800] : Colors.grey[300],
+          ),
+          _buildBreakdownItem(
+            'Additional Voluntary Contributions (AVC)',
+            _formatCurrency(_avcContributions),
+            Icons.savings_outlined,
+            const Color(0xFF2196F3),
+          ),
+          Divider(
+            height: 24,
+            color: isDarkMode ? Colors.grey[800] : Colors.grey[300],
+          ),
+          _buildBreakdownItem(
+            'PRMF Contributions',
+            _formatCurrency(_prmfContributions),
+            Icons.shield_outlined,
+            const Color(0xFFFF9800),
+          ),
+          Divider(
+            height: 24,
+            color: isDarkMode ? Colors.grey[800] : Colors.grey[300],
+          ),
+          _buildBreakdownItem(
+            'NSSF Tier II Contributions',
+            _formatCurrency(_nssfContributions),
+            Icons.verified_user_outlined,
+            const Color(0xFF00BCD4),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBreakdownItem(
+    String title,
+    String amount,
+    IconData icon,
+    Color color,
+  ) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, size: 20, color: color),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: isDarkMode ? Colors.white70 : Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                amount,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildThisYearCard() {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
@@ -273,60 +633,74 @@ class TrendsScreen extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                'Yearly Contributions',
+              Text(
+                'This Year\'s Contributions',
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
-                  color: Colors.black87,
+                  color: isDarkMode ? Colors.white : Colors.black87,
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: Colors.grey[100],
+                  color: isDarkMode ? Colors.grey[800] : Colors.grey[100],
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Row(
-                  children: [
-                    const Text(
-                      'This Year',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Icon(
-                      Icons.keyboard_arrow_down,
-                      size: 16,
-                      color: Colors.grey[700],
-                    ),
-                  ],
+                child: Text(
+                  '${DateTime.now().year}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: isDarkMode ? Colors.grey[400] : Colors.grey[700],
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 16),
-          const Text(
-            'KES 130,000',
-            style: TextStyle(
+          Text(
+            _formatCurrency(_yearlyContributions),
+            style: const TextStyle(
               fontSize: 32,
               fontWeight: FontWeight.bold,
-              color: Color(0xFFE74C3C),
+              color: Color(0xFFE31E24),
             ),
           ),
-          const Text(
-            '6 Contributions',
-            style: TextStyle(fontSize: 14, color: Colors.grey),
+          const SizedBox(height: 4),
+          Text(
+            '$_contributionCount ${_contributionCount == 1 ? 'month' : 'months'} with contributions',
+            style: TextStyle(
+              fontSize: 14,
+              color: isDarkMode ? Colors.grey[400] : Colors.grey,
+            ),
           ),
-          const SizedBox(height: 24),
-          SizedBox(
-            height: 120,
-            child: CustomPaint(painter: LineChartPainter(), child: Container()),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: isDarkMode ? Colors.grey[850] : Colors.grey[50],
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.info_outline,
+                  size: 20,
+                  color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'View Reports for detailed monthly breakdown',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: isDarkMode ? Colors.grey[400] : Colors.grey[700],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -335,6 +709,16 @@ class TrendsScreen extends StatelessWidget {
 }
 
 class DonutChartPainter extends CustomPainter {
+  final double employerPercentage;
+  final double employeePercentage;
+  final double interestPercentage;
+
+  DonutChartPainter({
+    required this.employerPercentage,
+    required this.employeePercentage,
+    required this.interestPercentage,
+  });
+
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
@@ -346,112 +730,43 @@ class DonutChartPainter extends CustomPainter {
       ..strokeWidth = strokeWidth
       ..strokeCap = StrokeCap.round;
 
-    // Kenya Airways - 50% (180 degrees)
-    paint.color = const Color(0xFF6B7FED);
+    final employerAngle = (employerPercentage / 100) * 6.283185307179586;
+    final employeeAngle = (employeePercentage / 100) * 6.283185307179586;
+    final interestAngle = (interestPercentage / 100) * 6.283185307179586;
+
+    double startAngle = -1.57;
+
+    // Employer (Green)
+    paint.color = const Color(0xFF4CAF50);
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: radius - strokeWidth / 2),
-      -1.57, // Start at top (-90 degrees in radians)
-      3.14, // 180 degrees
+      startAngle,
+      employerAngle,
       false,
       paint,
     );
+    startAngle += employerAngle;
 
-    // United Nations - 15% (54 degrees)
-    paint.color = const Color(0xFFFF6B9D);
+    // Employee (Purple)
+    paint.color = const Color(0xFF9C27B0);
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: radius - strokeWidth / 2),
-      1.57, // Start after Kenya Airways
-      0.942, // 54 degrees
+      startAngle,
+      employeeAngle,
       false,
       paint,
     );
+    startAngle += employeeAngle;
 
-    // KRA - 35% (126 degrees)
-    paint.color = const Color(0xFFB24CFF);
+    // Interest (Orange)
+    paint.color = const Color(0xFFFF9800);
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: radius - strokeWidth / 2),
-      2.512, // Start after United Nations
-      2.198, // 126 degrees
+      startAngle,
+      interestAngle,
       false,
       paint,
     );
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-class LineChartPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = const Color(0xFFFFA726)
-      ..strokeWidth = 2.5
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    final path = Path();
-
-    // Sample data points for the chart
-    final points = [
-      Offset(0, size.height * 0.7),
-      Offset(size.width * 0.15, size.height * 0.75),
-      Offset(size.width * 0.3, size.height * 0.6),
-      Offset(size.width * 0.45, size.height * 0.5),
-      Offset(size.width * 0.6, size.height * 0.35),
-      Offset(size.width * 0.75, size.height * 0.4),
-      Offset(size.width, size.height * 0.6),
-    ];
-
-    path.moveTo(points[0].dx, points[0].dy);
-
-    for (int i = 0; i < points.length - 1; i++) {
-      final current = points[i];
-      final next = points[i + 1];
-      final controlPoint1 = Offset(
-        current.dx + (next.dx - current.dx) / 3,
-        current.dy,
-      );
-      final controlPoint2 = Offset(
-        current.dx + 2 * (next.dx - current.dx) / 3,
-        next.dy,
-      );
-      path.cubicTo(
-        controlPoint1.dx,
-        controlPoint1.dy,
-        controlPoint2.dx,
-        controlPoint2.dy,
-        next.dx,
-        next.dy,
-      );
-    }
-
-    canvas.drawPath(path, paint);
-
-    // Draw points
-    final pointPaint = Paint()
-      ..color = const Color(0xFFFFA726)
-      ..style = PaintingStyle.fill;
-
-    for (final point in points) {
-      canvas.drawCircle(point, 4, pointPaint);
-    }
-
-    // Draw Y-axis labels
-    final textPainter = TextPainter(textDirection: TextDirection.ltr);
-
-    final labels = ['60k', '20k'];
-    for (int i = 0; i < labels.length; i++) {
-      textPainter.text = TextSpan(
-        text: labels[i],
-        style: TextStyle(color: Colors.grey[600], fontSize: 11),
-      );
-      textPainter.layout();
-      textPainter.paint(
-        canvas,
-        Offset(-35, size.height * (i == 0 ? 0.15 : 0.75)),
-      );
-    }
   }
 
   @override
